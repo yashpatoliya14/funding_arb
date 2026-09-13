@@ -171,58 +171,74 @@ class CoinswitchClient(ExchangeClient):
         return self._get_ticker_ws(symbol)
 
     def list_instruments(self) -> List[InstrumentInfo]:
-        """Fetch all futures instruments from CoinSwitch instrument_info endpoint."""
-        import logging, re
+        """Discover futures instruments from CoinSwitch.
+
+        The instrument_info endpoint returns {"data":null} on both coinswitch.co
+        and api-trading.coinswitch.co, so we fall back to querying the ticker
+        with EXCHANGE_2 to discover available symbols, plus a hardcoded list of
+        known CoinSwitch futures symbols.
+        """
+        import logging
         log = logging.getLogger("coinswitch_client")
-        try:
-            data = self._request("GET", "/trade/api/v2/futures/instrument_info")
-            # data may be None (empty response) — guard against that
-            items = data.get("data") if data else None
-            if items is None:
-                return []   # no instruments returned
-            if isinstance(items, dict):
-                # Some versions return {symbol: info, ...}
-                items = list(items.values()) if not isinstance(list(items.values())[0] if items else None, dict) else [{"symbol": k, **v} for k, v in items.items()]
-            if not isinstance(items, list):
-                items = [items]
-            instruments = []
-            for item in items:
-                symbol = str(item.get("symbol", item.get("pair", "")))
-                if not symbol:
-                    continue
-                # CoinSwitch symbols are like "BTCUSDT", "ETHUSDT" — parse base asset
-                base = str(item.get("base_asset", item.get("baseAsset", ""))).upper()
-                quote = str(item.get("quote_asset", item.get("quoteAsset", ""))).upper()
-                if not base:
-                    # Heuristic parse: strip common quote suffixes
-                    for suffix in ("USDT", "USD", "INR", "BUSD"):
-                        if symbol.upper().endswith(suffix):
-                            base = symbol.upper()[:-len(suffix)]
-                            quote = suffix
-                            break
-                    else:
-                        base = symbol.upper()
-                        quote = "USDT"
-                contract_type = str(item.get("contract_type", "perpetual")).lower()
-                if contract_type not in ("perpetual", "perp", ""):
-                    continue
-                status = str(item.get("status", "active")).lower()
-                if status not in ("active", "live", "trading", ""):
-                    continue
-                instruments.append(InstrumentInfo(
-                    symbol=symbol,
-                    base_asset=base,
-                    quote_asset=quote,
-                    contract_type="perpetual",
-                    min_quantity=float(item.get("min_quantity", item.get("minQty", 0)) or 0),
-                    tick_size=float(item.get("tick_size", item.get("tickSize", 0)) or 0),
-                    is_active=True,
-                ))
-            log.info("CoinSwitch: discovered %d perpetual instruments", len(instruments))
-            return instruments
-        except Exception as e:
-            log.warning("CoinSwitch list_instruments failed: %s", e)
-            return []
+        # Step 1: Try ticker-based discovery for known symbols
+        return self._discover_via_ticker()
+
+    def _discover_via_ticker(self) -> List[InstrumentInfo]:
+        """Discover available symbols by querying ticker for known CoinSwitch futures."""
+        import logging
+        log = logging.getLogger("coinswitch_client")
+        instruments = []
+        # Known CoinSwitch PRO Futures symbols (USDT-margined, EXCHANGE_2)
+        known_symbols = [
+            "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT",
+            "ADAUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT", "LTCUSDT",
+            "BCHUSDT", "UNIUSDT", "AAVEUSDT", "MANAUSDT", "FILUSDT",
+            "ETHFIUSDT", "ARBUSDT", "STRKUSDT", "TAOUSDT", "ENAUSDT",
+            "JUPUSDT", "INJUSDT", "PEPEUSDT", "SHIBUSDT", "XAUUSDT",
+            "MATICUSDT", "NEARUSDT", "SUIUSDT", "APTUSDT", "POLUSDT",
+            "TRXUSDT", "SEIUSDT", "STXUSDT", "ATOMUSDT", "NEOUSDT",
+            "VETUSDT", "FTMUSDT", "EOSUSDT", "ICXUSDT", "ZILUSDT",
+            "BATUSDT", "ZRXUSDT", "LRCUSDT", "OCEANUSDT", "HOTUSDT",
+            "COTIUSDT", "RSRUSDT", "GOATUSDT", "MOGUSDT", "POPCATUSDT",
+            "MELANIAUSDT", "TRUMPUSDT", "PNUTUSDT", "WLDUSDT", "GOOGLUSDT",
+            "TSLAUSDT", "NVDAUSDT", "AMZNUSDT", "COINUSDT", "SKHYNIXUSDT",
+            "RUNEUSDT", "TIAUSDT", "ONDOUSDT", "ZKUSDT", "RAYUSDT",
+            "CARRUSDT", "GIGAUSDT", "BERAUSDT", "INITUSDT", "LISTAUSDT",
+            "WCTUSDT", "HYPEUSDT", "MUSDT", "KITEUSDT", "SLVONUSDT",
+            "DOGSUSDT", "NOTUSDT", "MEUSDT", "EVAAUSDT", "COOKIEUSDT",
+            "PROVEUSDT", "SAGAUSDT", "DDOGUSDT", "NASAUSDT", "SWARMSUSDT",
+            "GrizzlyUSDT", "SPXUSDT", "SPYXUSDT", "CAKEUSDT", "ENAUSDT",
+        ]
+        # Deduplicate
+        seen = set()
+        for sym in known_symbols:
+            sym = sym.strip().upper()
+            if sym in seen:
+                continue
+            seen.add(sym)
+            try:
+                data = self._request("GET", "/trade/api/v2/futures/ticker",
+                                     params={"symbol": sym, "exchange": "EXCHANGE_2"})
+                ticker_data = data.get("data", {}).get("EXCHANGE_2")
+                if ticker_data:
+                    # Parse base/quote from symbol
+                    base = sym.replace("USDT", "").replace("USD", "").replace("INR", "").upper()
+                    quote = "USDT" if sym.endswith("USDT") else ("USD" if sym.endswith("USD") else "INR")
+                    instruments.append(InstrumentInfo(
+                        symbol=sym,
+                        base_asset=base,
+                        quote_asset=quote,
+                        contract_type="perpetual",
+                        is_active=True,
+                    ))
+                    log.debug("CoinSwitch discovered %s (base=%s, quote=%s)", sym, base, quote)
+                else:
+                    log.debug("CoinSwitch %s not found", sym)
+            except Exception as e:
+                log.debug("CoinSwitch ticker failed for %s: %s", sym, e)
+
+        log.info("CoinSwitch: discovered %d instruments via ticker", len(instruments))
+        return instruments
 
     # ---------------- trading ----------------
 

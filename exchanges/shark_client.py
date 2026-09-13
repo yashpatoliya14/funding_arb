@@ -136,7 +136,9 @@ class SharkClient(ExchangeClient):
                 if not symbol:
                     continue
                 ctype = str(item.get("contractType", item.get("type", ""))).upper()
-                if ctype and ctype not in ("PERPETUAL", "PERPETUAL_FUTURES", "PERP", ""):
+                # Accept PERPETUAL, PERPETUAL_FUTURES, PERP, AND TRADIFI_PERPETUAL
+                # (Shark uses TRADIFI_PERPETUAL for some synthetic/alt perps)
+                if ctype and ctype not in ("PERPETUAL", "PERPETUAL_FUTURES", "PERP", "TRADIFI_PERPETUAL", ""):
                     continue
                 base = str(item.get("baseAsset", item.get("base", ""))).upper()
                 quote = str(item.get("quoteAsset", item.get("quote", ""))).upper()
