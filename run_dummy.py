@@ -91,6 +91,17 @@ def main():
     pairs_display = ", ".join(f"{f} <-> {h}" for f, h in settings.EXCHANGE_PAIRS)
     scan_mode = "ALL coins" if settings.SCAN_ALL_COINS else "whitelist"
     print(f"All {len(engines)} pairs passed. Multi-coin scan: {scan_mode}.")
+
+    # Send startup confirmation to Telegram
+    notifier.startup(
+        mode="PAPER TRADING",
+        exchange_pairs=settings.EXCHANGE_PAIRS,
+        scan_mode=scan_mode,
+        leverage=settings.REQUESTED_LEVERAGE,
+        notional_inr=settings.FIXED_NOTIONAL_INR,
+        quantity=settings.TRADE_QUANTITY,
+    )
+
     print(f"Starting paper-trading loop. Ctrl+C to stop.")
     runner = MultiPairRunner(engines)
     asyncio.run(runner.run_all())

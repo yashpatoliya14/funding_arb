@@ -35,6 +35,30 @@ class TelegramNotifier:
                 pass
 
     # ------------------------------------------------------------------
+    # startup / shutdown
+    # ------------------------------------------------------------------
+
+    def startup(self, mode: str, exchange_pairs: list, scan_mode: str,
+                leverage: int, notional_inr: float = 0, quantity: float = 0):
+        """Send a clear startup confirmation so the user knows the bot is live."""
+        pairs_str = "\n".join(f"  • {f} ↔ {h}" for f, h in exchange_pairs)
+        sizing = f"Notional: ₹{notional_inr:,.0f}" if notional_inr > 0 else f"Qty: {quantity}"
+        self.send(
+            f"✅ <b>BOT {mode.upper()} — STARTED</b>\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"\n"
+            f"<b>Mode:</b> {mode}\n"
+            f"<b>Exchange Pairs:</b>\n{pairs_str}\n"
+            f"\n"
+            f"<b>Scan Mode:</b> {scan_mode}\n"
+            f"<b>Leverage:</b> {leverage}x\n"
+            f"<b>Position Sizing:</b> {sizing}\n"
+            f"<b>Next Funding:</b> {next_funding_time()}\n"
+            f"\n"
+            f"Bot is running. Watching for opportunities 🔍"
+        )
+
+    # ------------------------------------------------------------------
     # convenience wrappers used throughout engine.py
     # ------------------------------------------------------------------
 

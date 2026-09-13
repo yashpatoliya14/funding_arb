@@ -114,6 +114,17 @@ def main():
         sys.exit(1)
 
     print(f"All {len(engines)} pairs passed. Starting LIVE loop. Ctrl+C to stop.")
+
+    # Send startup confirmation to Telegram
+    notifier.startup(
+        mode="LIVE",
+        exchange_pairs=settings.EXCHANGE_PAIRS,
+        scan_mode="ALL coins" if settings.SCAN_ALL_COINS else "whitelist",
+        leverage=settings.REQUESTED_LEVERAGE,
+        notional_inr=settings.FIXED_NOTIONAL_INR,
+        quantity=settings.TRADE_QUANTITY,
+    )
+
     runner = MultiPairRunner(engines)
     asyncio.run(runner.run_all())
 
