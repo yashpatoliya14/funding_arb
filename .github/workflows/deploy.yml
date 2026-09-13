@@ -25,4 +25,4 @@ jobs:
           port: ${{ secrets.VM_PORT }}
           key: ${{ secrets.VM_SSH_KEY }}
           script: |
-            ~/deploy-funding.sh 
+            ~/deploy-funding.sh  
