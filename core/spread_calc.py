@@ -149,19 +149,21 @@ def evaluate_funding_trade_full(
         hedge_side = "buy"
 
     # ---- Step 2: Calculate funding income/expense ----
-    # When short on funding leg: if funding_rate > 0, shorts receive funding
-    # When long on hedge leg: if hedge_rate > 0, longs pay funding
+    # Funding leg: you're SHORT there.
+    #   If funding_rate > 0: shorts RECEIVE from longs (positive funding)
+    #   If funding_rate < 0: shorts PAY to longs (negative funding)
+    # Hedge leg: you're LONG there.
+    #   If hedge_rate > 0: longs PAY to shorts (positive funding)
+    #   If hedge_rate < 0: longs RECEIVE from shorts (negative funding)
     if funding_rate >= 0:
-        funding_received_pct = abs(funding_rate) * 100  # shorts receive
+        funding_received_pct = abs(funding_rate) * 100   # shorts receive ✓
     else:
-        funding_received_pct = abs(funding_rate) * 100  # longs receive when rate negative
+        funding_received_pct = -abs(funding_rate) * 100  # shorts PAY when rate negative ✓
 
-    # Hedge leg: you're long there. If hedge rate > 0, you PAY funding.
-    # If hedge rate <= 0, you RECEIVE funding (bonus).
     if hedge_rate >= 0:
-        funding_paid_pct = abs(hedge_rate) * 100  # long pays when rate positive
+        funding_paid_pct = abs(hedge_rate) * 100         # long pays when rate positive ✓
     else:
-        funding_paid_pct = -abs(hedge_rate) * 100  # long receives when rate negative (negative = you get paid)
+        funding_paid_pct = -abs(hedge_rate) * 100        # long receives when rate negative ✓
 
     net_funding_pct = funding_received_pct - funding_paid_pct
 
