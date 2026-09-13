@@ -1,20 +1,11 @@
-"""
-Requirement #7 & #8: place limit orders on BOTH exchanges at the same price
-(mid or best-bid/ask as configured), update both roughly together as price
-moves, and if one leg fills while the other doesn't -> close the filled leg
-immediately (leg risk kill-switch), rather than chasing the second fill.
-
-Requirement #6 basis-drift kill switch also lives here since it operates on
-the same two-leg state.
-"""
-
+import math
 import time
 import logging
 from dataclasses import dataclass
 from typing import Optional
 
 from exchanges.base import ExchangeClient, OrderResult
-from config.constants import ORDER_REPRICE_INTERVAL_SEC, MAX_BASIS_DRIFT_PCT
+from config.constants import ORDER_REPRICE_INTERVAL_SEC, MAX_BASIS_DRIFT_PCT, MAX_REPRICES
 
 log = logging.getLogger("order_manager")
 
@@ -30,6 +21,7 @@ class DualLegState:
     both_filled: bool = False
     aborted: bool = False
     abort_reason: str = ""
+    reprice_count: int = 0
 
 
 class DualLegOrderManager:
@@ -72,11 +64,18 @@ class DualLegOrderManager:
 
         new_price_a = self._quote_price(ticker_a, side_a)
         new_price_b = self._quote_price(ticker_b, side_b)
+        
+        repriced = False
 
         if state.order_a and state.order_a.status == "open" and new_price_a != state.order_a.price:
             state.order_a = self.client_a.reprice_order(state.symbol_a, state.order_a.order_id, new_price_a)
+            repriced = True
         if state.order_b and state.order_b.status == "open" and new_price_b != state.order_b.price:
             state.order_b = self.client_b.reprice_order(state.symbol_b, state.order_b.order_id, new_price_b)
+            repriced = True
+            
+        if repriced:
+            state.reprice_count += 1
 
     def check_leg_risk(self, state: DualLegState) -> bool:
         """Requirement #7: if one leg filled and the other didn't after a fair
@@ -87,8 +86,9 @@ class DualLegOrderManager:
         status_b = self.client_b.get_order_status(state.symbol_b, state.order_b.order_id)
         state.order_a, state.order_b = status_a, status_b
 
-        a_filled = status_a.status in ("filled", "closed")
-        b_filled = status_b.status in ("filled", "closed")
+        # A filled or partially filled is considered filled for leg risk check logic
+        a_filled = status_a.status in ("filled", "closed", "partially_filled")
+        b_filled = status_b.status in ("filled", "closed", "partially_filled")
 
         if a_filled and b_filled:
             state.both_filled = True
@@ -191,13 +191,19 @@ class DualLegOrderManager:
                 return state
             if state.both_filled:
                 return state
+                
+            if state.reprice_count >= MAX_REPRICES:
+                log.warning("MAX_REPRICES reached, aborting limit orders")
+                break
+                
             self.reprice_both(state, side_a, side_b)
             time.sleep(ORDER_REPRICE_INTERVAL_SEC)
-        # timeout without both filling -> treat as leg risk, clean up whichever side filled
+            
+        # timeout or max reprices without both filling -> treat as leg risk, clean up whichever side filled
         self.check_leg_risk(state)
         if not state.both_filled and not state.aborted:
             self.client_a.cancel_order(state.symbol_a, state.order_a.order_id)
             self.client_b.cancel_order(state.symbol_b, state.order_b.order_id)
             state.aborted = True
-            state.abort_reason = "timeout_neither_filled"
+            state.abort_reason = "max_reprices_or_timeout"
         return state

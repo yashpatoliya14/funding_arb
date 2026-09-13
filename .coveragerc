@@ -1,0 +1,18 @@
+[run]
+source =
+    core
+    exchanges
+    engine.py
+omit =
+    tests/*
+    run_dummy.py
+    run_live.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    if self.debug:
+    if __name__ == .__main__.:
+    raise NotImplementedError
+    pass

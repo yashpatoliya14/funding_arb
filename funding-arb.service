@@ -1,0 +1,24 @@
+[Unit]
+Description=Funding Rate Arbitrage Bot
+After=network.target
+
+[Service]
+Type=simple
+User=root
+# Update the paths below to match your actual installation location
+WorkingDirectory=/root/funding_arb
+EnvironmentFile=/root/funding_arb/.env
+
+# Use the virtual environment Python
+ExecStart=/root/funding_arb/venv/bin/python run_dummy.py
+
+# Restart on failure or crash
+Restart=always
+RestartSec=10
+
+# Standard output and error handling
+StandardOutput=append:/root/funding_arb/logs/service.log
+StandardError=append:/root/funding_arb/logs/service_error.log
+
+[Install]
+WantedBy=multi-user.target

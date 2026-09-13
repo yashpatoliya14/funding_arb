@@ -108,6 +108,7 @@ ENTRY_LEAD_MINUTES = 20          # enter this many minutes before funding snapsh
 POST_SNAPSHOT_CLOSE_DELAY_SEC = 30   # wait this long after snapshot, then close both legs
 PRICE_POLL_INTERVAL_SEC = 10     # requirement #1
 ORDER_REPRICE_INTERVAL_SEC = 10  # requirement #7/#8
+MAX_REPRICES = 10
 MAX_BASIS_DRIFT_PCT = 0.15       # kill-switch: close both legs if basis moves against you by this %
 MIN_NET_EDGE_PCT = 0.05          # don't enter unless funding edge clears round-trip cost by this margin (%)
 

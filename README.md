@@ -160,6 +160,22 @@ funding_arb/
 └── requirements.txt          # Python dependencies
 ```
 
+## Testing
+
+Testing is mandatory before any deployment. To run the complete automated test suite, use pytest:
+
+```bash
+pytest -q
+```
+
+To run tests with coverage:
+
+```bash
+pytest --cov=. --cov-report=term-missing
+```
+
+Make sure all tests pass.
+
 ## Known gaps to close before scaling size
 
 - **Shark WebSocket**: not wired up (REST polling only) — their docs

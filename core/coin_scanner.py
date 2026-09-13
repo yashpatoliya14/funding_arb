@@ -294,7 +294,10 @@ def _legacy_symbol(exchange_name: str) -> str:
 
 def _parse_base_from_symbol(symbol: str) -> str:
     """Best-effort extraction of base asset from a symbol string."""
+    import re
     s = symbol.upper()
+    # Remove common separators
+    s = re.sub(r'[-_]', '', s)
     for suffix in ("USDT", "USD", "INR", "BUSD", "PERP"):
         if s.endswith(suffix):
             return s[:-len(suffix)]
