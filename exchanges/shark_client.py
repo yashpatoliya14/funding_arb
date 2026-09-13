@@ -118,28 +118,25 @@ class SharkClient(ExchangeClient):
     def list_instruments(self) -> List[InstrumentInfo]:
         """Fetch all instruments from Shark's exchangeInfo and filter for perpetuals.
 
-        NOTE: The correct endpoint is /v1/exchange/exchangeInfo (authenticated),
-        NOT /v1/market/exchangeInfo which returns 404.
+        NOTE: This is a PUBLIC endpoint — no auth headers needed. Sending auth
+        headers causes a 400 Bad Request.
         """
         import logging
         log = logging.getLogger("shark_client")
         try:
-            data = self._get("/v1/exchange/exchangeInfo", authed=True)
-            items = data.get("data", data)
-            if isinstance(items, dict) and "symbols" in items:
-                items = items["symbols"]
+            data = self._get("/v1/exchange/exchangeInfo", authed=False)
+            # Response shape: {"markets":["INR","USDT"], "contracts":[{...}, ...]}
+            items = data.get("contracts", data.get("data", data))
             if not isinstance(items, list):
                 items = [items] if isinstance(items, dict) else []
             instruments = []
             for item in items:
-                symbol = str(item.get("symbol", item.get("contractPair", item.get("pair", ""))))
+                # Shark uses "name" as the symbol (e.g. "BTCUSDT", "ETHINR")
+                symbol = str(item.get("name", item.get("symbol", item.get("contractPair", item.get("pair", "")))))
                 if not symbol:
                     continue
-                ctype = str(item.get("contractType", item.get("type", ""))).lower()
-                if ctype and ctype not in ("perpetual", "perp", "perpetual_futures"):
-                    continue
-                status = str(item.get("status", item.get("contractStatus", ""))).lower()
-                if status and status not in ("trading", "active", "live"):
+                ctype = str(item.get("contractType", item.get("type", ""))).upper()
+                if ctype and ctype not in ("PERPETUAL", "PERPETUAL_FUTURES", "PERP", ""):
                     continue
                 base = str(item.get("baseAsset", item.get("base", ""))).upper()
                 quote = str(item.get("quoteAsset", item.get("quote", ""))).upper()
