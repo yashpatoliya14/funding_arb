@@ -215,7 +215,8 @@ def evaluate_funding_trade_full(
         f"[funding={net_funding_pct:.4f}% (recv={funding_received_pct:.4f}% pay={funding_paid_pct:.4f}%) "
         f"- fees={entry_fees_pct + exit_fees_pct:.4f}% "
         f"- spread={spread_cost_pct:.4f}% "
-        f"- slip={slippage_cost_pct:.4f}%] "
+        f"- slip={slippage_cost_pct:.4f}% "
+        f"- total={total_cost_pct:.4f}%] "
         f"{'✓ TRADEABLE' if tradeable else '✗ below threshold'} (min={MIN_NET_EDGE_PCT}%)"
     )
 

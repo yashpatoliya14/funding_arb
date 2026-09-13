@@ -32,7 +32,7 @@ class TestExchangeAdapters:
             assert ticker.symbol == "BTCUSDT"
             assert ticker.best_bid == 100
             assert ticker.best_ask == 101
-            assert ticker.funding_rate == 0.001
+            assert ticker.funding_rate == 0.00001
             
     def test_delta_list_instruments(self):
         client = DeltaClient("key", "secret")

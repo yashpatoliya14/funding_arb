@@ -105,6 +105,7 @@ class TelegramNotifier:
             f"  Fees (entry+exit): -{opp.entry_fees_pct + opp.exit_fees_pct:.4f}%\n"
             f"  Spread cost:     -{opp.spread_cost_pct:.4f}%\n"
             f"  Slippage buffer: -{opp.slippage_cost_pct:.4f}%\n"
+            f"  Total costs:     -{opp.total_cost_pct:.4f}%\n"
             f"\n"
             f"<b>━━━━━━━━━━━━━━━━</b>\n"
             f"<b>Net P&L: {opp.net_pnl_pct:+.4f}%</b>\n"

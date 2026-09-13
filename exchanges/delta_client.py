@@ -86,7 +86,7 @@ class DeltaClient(ExchangeClient):
             best_bid=float(data.get("quotes", {}).get("best_bid", data.get("mark_price", 0))),
             best_ask=float(data.get("quotes", {}).get("best_ask", data.get("mark_price", 0))),
             mark_price=float(data.get("mark_price", 0)),
-            funding_rate=float(data.get("funding_rate", 0)) if data.get("funding_rate") else None,
+            funding_rate=(float(data.get("funding_rate", 0)) / 100) if data.get("funding_rate") else None,
             next_funding_time_ms=None,  # Delta publishes this on the product spec / UI ticker; wire
                                          # this up to product_specs.rate_exchange_interval + last
                                          # settlement time if you need it programmatically.
