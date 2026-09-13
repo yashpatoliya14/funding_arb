@@ -116,11 +116,15 @@ class SharkClient(ExchangeClient):
         )
 
     def list_instruments(self) -> List[InstrumentInfo]:
-        """Fetch all instruments from Shark's exchangeInfo and filter for perpetuals."""
+        """Fetch all instruments from Shark's exchangeInfo and filter for perpetuals.
+
+        NOTE: The correct endpoint is /v1/exchange/exchangeInfo (authenticated),
+        NOT /v1/market/exchangeInfo which returns 404.
+        """
         import logging
         log = logging.getLogger("shark_client")
         try:
-            data = self._get("/v1/market/exchangeInfo", authed=False)
+            data = self._get("/v1/exchange/exchangeInfo", authed=True)
             items = data.get("data", data)
             if isinstance(items, dict) and "symbols" in items:
                 items = items["symbols"]

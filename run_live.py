@@ -100,32 +100,46 @@ def main():
         sys.exit(1)
 
     print(f"Running sanity check for {len(engines)} exchange pairs (read-only calls only)...")
-    all_ok = True
+    working_engines = []
+    failed_pairs = []
     for engine in engines:
         if not engine.sanity_check():
-            print(f"  [FAIL] Sanity check FAILED for {engine.pair_label}")
-            all_ok = False
+            print(f"  [FAIL] Sanity check FAILED for {engine.pair_label} — skipping this pair")
+            failed_pairs.append(engine.pair_label)
         else:
             print(f"  [OK] {engine.pair_label} OK")
+            working_engines.append(engine)
 
-    if not all_ok:
-        print("One or more sanity checks FAILED — see logs/engine.log. Will NOT start live trading.")
-        notifier.error("run_live.sanity_check", "Failed pre-flight sanity check — engine not started.")
+    if not working_engines:
+        print("All sanity checks FAILED — nothing to run. See logs/engine.log.")
+        notifier.error("run_live.sanity_check", "All exchange pairs failed sanity check — engine not started.")
         sys.exit(1)
 
-    print(f"All {len(engines)} pairs passed. Starting LIVE loop. Ctrl+C to stop.")
+    if failed_pairs:
+        print(f"WARNING: {len(failed_pairs)} pair(s) failed and will be skipped: {', '.join(failed_pairs)}")
+        print(f"Proceeding with {len(working_engines)} working pair(s).")
+
+    print(f"{len(working_engines)} pairs active. Starting LIVE loop. Ctrl+C to stop.")
 
     # Send startup confirmation to Telegram
+    active_pairs = [(e.exchange_name_a, e.exchange_name_b) for e in working_engines]
     notifier.startup(
         mode="LIVE",
-        exchange_pairs=settings.EXCHANGE_PAIRS,
+        exchange_pairs=active_pairs,
         scan_mode="ALL coins" if settings.SCAN_ALL_COINS else "whitelist",
         leverage=settings.REQUESTED_LEVERAGE,
         notional_inr=settings.FIXED_NOTIONAL_INR,
         quantity=settings.TRADE_QUANTITY,
     )
+    if failed_pairs:
+        notifier.send(
+            f"⚠️ <b>PAIRS SKIPPED</b>\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"{', '.join(failed_pairs)}\n"
+            f"(sanity check failed — will retry on next restart)"
+        )
 
-    runner = MultiPairRunner(engines)
+    runner = MultiPairRunner(working_engines)
     asyncio.run(runner.run_all())
 
 

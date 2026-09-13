@@ -76,34 +76,48 @@ def main():
         sys.exit(1)
 
     print(f"Running sanity check for {len(engines)} exchange pairs (paper trading - no real orders)...")
-    all_ok = True
+    working_engines = []
+    failed_pairs = []
     for engine in engines:
         if not engine.sanity_check():
-            print(f"  [FAIL] Sanity check FAILED for {engine.pair_label}")
-            all_ok = False
+            print(f"  [FAIL] Sanity check FAILED for {engine.pair_label} — skipping this pair")
+            failed_pairs.append(engine.pair_label)
         else:
             print(f"  [OK] {engine.pair_label} OK")
+            working_engines.append(engine)
 
-    if not all_ok:
-        print("One or more sanity checks FAILED — see logs/engine.log. Fix before continuing.")
+    if not working_engines:
+        print("All sanity checks FAILED — nothing to run. See logs/engine.log.")
         sys.exit(1)
+
+    if failed_pairs:
+        print(f"WARNING: {len(failed_pairs)} pair(s) failed and will be skipped: {', '.join(failed_pairs)}")
+        print(f"Proceeding with {len(working_engines)} working pair(s).")
 
     pairs_display = ", ".join(f"{f} <-> {h}" for f, h in settings.EXCHANGE_PAIRS)
     scan_mode = "ALL coins" if settings.SCAN_ALL_COINS else "whitelist"
-    print(f"All {len(engines)} pairs passed. Multi-coin scan: {scan_mode}.")
+    print(f"{len(working_engines)} pairs active. Multi-coin scan: {scan_mode}.")
 
     # Send startup confirmation to Telegram
+    active_pairs = [(e.exchange_name_a, e.exchange_name_b) for e in working_engines]
     notifier.startup(
         mode="PAPER TRADING",
-        exchange_pairs=settings.EXCHANGE_PAIRS,
+        exchange_pairs=active_pairs,
         scan_mode=scan_mode,
         leverage=settings.REQUESTED_LEVERAGE,
         notional_inr=settings.FIXED_NOTIONAL_INR,
         quantity=settings.TRADE_QUANTITY,
     )
+    if failed_pairs:
+        notifier.send(
+            f"⚠️ <b>PAIRS SKIPPED</b>\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"{', '.join(failed_pairs)}\n"
+            f"(sanity check failed — will retry on next restart)"
+        )
 
     print(f"Starting paper-trading loop. Ctrl+C to stop.")
-    runner = MultiPairRunner(engines)
+    runner = MultiPairRunner(working_engines)
     asyncio.run(runner.run_all())
 
 
