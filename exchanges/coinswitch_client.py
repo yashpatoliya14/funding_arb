@@ -144,8 +144,8 @@ class CoinswitchClient(ExchangeClient):
                 if _CS_SHARED_SIO.connected:
                     _CS_SHARED_SIO.emit("FETCH_TICKER_INFO_CS_PRO", {"event": "subscribe", "pair": symbol}, namespace=cfg["ws_namespace"])
 
-        # Wait up to 10s for the first tick
-        for _ in range(100):
+        # Wait up to 3s for the first tick
+        for _ in range(30):
             if symbol in _CS_SHARED_CACHE:
                 return _CS_SHARED_CACHE[symbol]
             time.sleep(0.1)
@@ -153,21 +153,7 @@ class CoinswitchClient(ExchangeClient):
         raise RuntimeError(f"CoinSwitch WebSocket timed out fetching ticker for {symbol}")
 
     def get_ticker(self, symbol: str) -> Ticker:
-        if self.api_key and len(self.secret_key_bytes) == 32:
-            try:
-                data = self._request("GET", "/trade/api/v2/futures/ticker", params={"symbol": symbol})
-                result = data.get("data", data)
-                return Ticker(
-                    symbol=symbol,
-                    best_bid=float(result.get("bid", result.get("last_price", 0))),
-                    best_ask=float(result.get("ask", result.get("last_price", 0))),
-                    mark_price=float(result.get("mark_price", result.get("last_price", 0))),
-                    funding_rate=float(result.get("funding_rate", 0)) if result.get("funding_rate") else None,
-                    next_funding_time_ms=result.get("next_funding_time"),
-                )
-            except Exception:
-                pass
-        # If no credentials or REST fails, use public WebSocket stream (unauthenticated per CoinSwitch docs)
+        # Always use the public WebSocket stream for tickers to avoid aggressive REST rate limits.
         return self._get_ticker_ws(symbol)
 
     def list_instruments(self) -> List[InstrumentInfo]:
@@ -209,35 +195,23 @@ class CoinswitchClient(ExchangeClient):
             "PROVEUSDT", "SAGAUSDT", "DDOGUSDT", "NASAUSDT", "SWARMSUSDT",
             "GrizzlyUSDT", "SPXUSDT", "SPYXUSDT", "CAKEUSDT", "ENAUSDT",
         ]
-        # Deduplicate
-        seen = set()
+        
+        # We don't query the REST API per coin here because doing so for 80+ coins
+        # immediately triggers CoinSwitch's aggressive 429 Too Many Requests rate limit.
+        # Instead, we assume the hardcoded list and fetch live data via WebSocket.
         for sym in known_symbols:
             sym = sym.strip().upper()
-            if sym in seen:
-                continue
-            seen.add(sym)
-            try:
-                data = self._request("GET", "/trade/api/v2/futures/ticker",
-                                     params={"symbol": sym, "exchange": "EXCHANGE_2"})
-                ticker_data = data.get("data", {}).get("EXCHANGE_2")
-                if ticker_data:
-                    # Parse base/quote from symbol
-                    base = sym.replace("USDT", "").replace("USD", "").replace("INR", "").upper()
-                    quote = "USDT" if sym.endswith("USDT") else ("USD" if sym.endswith("USD") else "INR")
-                    instruments.append(InstrumentInfo(
-                        symbol=sym,
-                        base_asset=base,
-                        quote_asset=quote,
-                        contract_type="perpetual",
-                        is_active=True,
-                    ))
-                    log.debug("CoinSwitch discovered %s (base=%s, quote=%s)", sym, base, quote)
-                else:
-                    log.debug("CoinSwitch %s not found", sym)
-            except Exception as e:
-                log.debug("CoinSwitch ticker failed for %s: %s", sym, e)
+            base = sym.replace("USDT", "").replace("USD", "").replace("INR", "").upper()
+            quote = "USDT" if sym.endswith("USDT") else ("USD" if sym.endswith("USD") else "INR")
+            instruments.append(InstrumentInfo(
+                symbol=sym,
+                base_asset=base,
+                quote_asset=quote,
+                contract_type="perpetual",
+                is_active=True,
+            ))
 
-        log.info("CoinSwitch: discovered %d instruments via ticker", len(instruments))
+        log.info("CoinSwitch: returned %d instruments from local list", len(instruments))
         return instruments
 
     # ---------------- trading ----------------
