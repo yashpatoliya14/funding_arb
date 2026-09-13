@@ -26,6 +26,7 @@ class DualLegState:
     order_a: Optional[OrderResult] = None
     order_b: Optional[OrderResult] = None
     entry_basis_pct: Optional[float] = None
+    entry_time: float = 0.0  # epoch seconds when orders were placed
     both_filled: bool = False
     aborted: bool = False
     abort_reason: str = ""
@@ -61,7 +62,8 @@ class DualLegOrderManager:
 
         return DualLegState(symbol_a=symbol_a, symbol_b=symbol_b,
                              order_a=order_a, order_b=order_b,
-                             entry_basis_pct=entry_basis_pct)
+                             entry_basis_pct=entry_basis_pct,
+                             entry_time=time.time())
 
     def reprice_both(self, state: DualLegState, side_a: str, side_b: str):
         """Requirement #8: pull latest price, move both quotes to stay maker-side."""
@@ -100,7 +102,12 @@ class DualLegOrderManager:
             state.aborted = True
             state.abort_reason = "leg_risk_a_only"
             if self.notifier:
-                self.notifier.leg_risk(state.symbol_a, self.client_a.name, self.client_b.name)
+                self.notifier.leg_risk(
+                    state.symbol_a, state.symbol_b,
+                    self.client_a.name, self.client_b.name,
+                    self.client_a.name, self.client_b.name,
+                    state.symbol_a, state.symbol_b,
+                )
             return True
 
         if b_filled and not a_filled:
@@ -111,7 +118,12 @@ class DualLegOrderManager:
             state.aborted = True
             state.abort_reason = "leg_risk_b_only"
             if self.notifier:
-                self.notifier.leg_risk(state.symbol_b, self.client_b.name, self.client_a.name)
+                self.notifier.leg_risk(
+                    state.symbol_a, state.symbol_b,
+                    self.client_a.name, self.client_b.name,
+                    self.client_b.name, self.client_a.name,
+                    state.symbol_b, state.symbol_a,
+                )
             return True
 
         return False
@@ -135,15 +147,39 @@ class DualLegOrderManager:
             state.aborted = True
             state.abort_reason = "basis_drift"
             if self.notifier:
-                self.notifier.basis_drift_stop(state.symbol_a, drift)
+                self.notifier.basis_drift_stop(
+                    state.symbol_a, state.symbol_b,
+                    self.client_a.name, self.client_b.name,
+                    drift, state.entry_basis_pct or 0, current_basis_pct,
+                )
             return True
         return False
 
     def close_both(self, state: DualLegState):
+        # Compute current basis before closing
+        current_basis_pct = None
+        try:
+            ticker_a = self.client_a.get_ticker(state.symbol_a)
+            ticker_b = self.client_b.get_ticker(state.symbol_b)
+            current_basis_pct = abs(ticker_a.mark_price - ticker_b.mark_price) / min(
+                ticker_a.mark_price, ticker_b.mark_price) * 100
+        except Exception:
+            pass
+
         self.client_a.close_position_market(state.symbol_a)
         self.client_b.close_position_market(state.symbol_b)
+
         if self.notifier:
-            self.notifier.exit(state.symbol_a)
+            hold_seconds = time.time() - state.entry_time if state.entry_time else None
+            self.notifier.exit(
+                symbol_a=state.symbol_a,
+                symbol_b=state.symbol_b,
+                exchange_a=self.client_a.name,
+                exchange_b=self.client_b.name,
+                entry_basis_pct=state.entry_basis_pct,
+                current_basis_pct=current_basis_pct,
+                hold_seconds=hold_seconds,
+            )
 
     def monitor_until_filled(self, state: DualLegState, side_a: str, side_b: str,
                               timeout_sec: int = 300) -> DualLegState:

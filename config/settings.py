@@ -5,8 +5,11 @@ with python-dotenv, which run_dummy.py / run_live.py already do.
 """
 
 import os
+import json
 
-# --- Symbols to trade on each exchange (their naming conventions differ) ---
+# --- Legacy per-exchange symbols (used as FALLBACK if scanner can't reach an exchange) ---
+# The engine now discovers symbols dynamically via list_instruments(), but
+# these are kept for backward compatibility and as a sanity-check reference.
 DELTA_SYMBOL = os.getenv("DELTA_SYMBOL", "BTCUSD")
 COINSWITCH_SYMBOL = os.getenv("COINSWITCH_SYMBOL", "BTCUSDT")
 SHARK_SYMBOL = os.getenv("SHARK_SYMBOL", "BTCUSDT")
@@ -20,8 +23,20 @@ EXCHANGE_PAIRS = [
 ]
 
 # --- Position sizing ---
-TRADE_QUANTITY = float(os.getenv("TRADE_QUANTITY", "0.001"))   # in base asset units
+TRADE_QUANTITY = float(os.getenv("TRADE_QUANTITY", "0.001"))   # in base asset units (legacy fallback)
 REQUESTED_LEVERAGE = int(os.getenv("REQUESTED_LEVERAGE", "10"))
+
+# Fixed notional per trade in INR — overrides TRADE_QUANTITY when > 0.
+# Quantity = FIXED_NOTIONAL_INR / mark_price.
+FIXED_NOTIONAL_INR = float(os.getenv("FIXED_NOTIONAL_INR", "10000"))
+
+# --- Multi-coin scanning ---
+# JSON list of base asset names to scan, e.g. '["BTC","ETH","SOL"]'
+# Empty string or "[]" → use default whitelist from constants.py
+_wl_raw = os.getenv("COIN_WHITELIST", "")
+COIN_WHITELIST_OVERRIDE = json.loads(_wl_raw) if _wl_raw.strip().startswith("[") else None
+
+SCAN_ALL_COINS = os.getenv("SCAN_ALL_COINS", "false").lower() == "true"
 
 # --- Loop pacing ---
 MAIN_LOOP_INTERVAL_SEC = int(os.getenv("MAIN_LOOP_INTERVAL_SEC", "10"))

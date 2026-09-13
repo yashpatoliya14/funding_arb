@@ -30,7 +30,8 @@ import time
 import requests
 
 from config.constants import BASE_URLS, MAX_LEVERAGE
-from exchanges.base import ExchangeClient, Ticker, OrderResult, Position
+from exchanges.base import ExchangeClient, Ticker, OrderResult, Position, InstrumentInfo
+from typing import List
 
 
 class DeltaClient(ExchangeClient):
@@ -90,6 +91,43 @@ class DeltaClient(ExchangeClient):
                                          # this up to product_specs.rate_exchange_interval + last
                                          # settlement time if you need it programmatically.
         )
+
+    def list_instruments(self) -> List[InstrumentInfo]:
+        """Fetch all products from Delta and filter for active perpetual futures."""
+        import logging
+        log = logging.getLogger("delta_client")
+        try:
+            data = self._request("GET", "/v2/products")
+            products = data.get("result", data) if isinstance(data, dict) else data
+            if not isinstance(products, list):
+                products = [products]
+            instruments = []
+            for p in products:
+                ctype = str(p.get("contract_type", "")).lower()
+                if ctype not in ("perpetual_futures", "perpetual"):
+                    continue
+                state = str(p.get("state", "")).lower()
+                if state not in ("live", "active", ""):
+                    continue
+                symbol = p.get("symbol", "")
+                base = str(p.get("underlying_asset", {}).get("symbol", "")).upper() if isinstance(p.get("underlying_asset"), dict) else str(p.get("underlying_asset", "")).upper()
+                quote = str(p.get("quoting_asset", {}).get("symbol", "")).upper() if isinstance(p.get("quoting_asset"), dict) else str(p.get("quoting_asset", "")).upper()
+                if not symbol or not base:
+                    continue
+                instruments.append(InstrumentInfo(
+                    symbol=symbol,
+                    base_asset=base,
+                    quote_asset=quote or "USD",
+                    contract_type="perpetual",
+                    min_quantity=float(p.get("min_size", 0) or 0),
+                    tick_size=float(p.get("tick_size", 0) or 0),
+                    is_active=True,
+                ))
+            log.info("Delta: discovered %d perpetual instruments", len(instruments))
+            return instruments
+        except Exception as e:
+            log.warning("Delta list_instruments failed: %s", e)
+            return []
 
     # ---------------- trading ----------------
 

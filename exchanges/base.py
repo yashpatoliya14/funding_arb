@@ -8,8 +8,8 @@ against real exchanges with zero changes to engine.py.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import List, Optional
 
 
 @dataclass
@@ -20,6 +20,18 @@ class Ticker:
     mark_price: float
     funding_rate: Optional[float]        # current period funding rate, as fraction
     next_funding_time_ms: Optional[int]  # epoch ms of next funding snapshot
+
+
+@dataclass
+class InstrumentInfo:
+    """Describes a single tradeable perpetual futures instrument on an exchange."""
+    symbol: str              # exchange-native symbol, e.g. "BTCUSD", "ETHUSDT"
+    base_asset: str          # normalized uppercase, e.g. "BTC", "ETH"
+    quote_asset: str         # e.g. "USD", "USDT", "INR"
+    contract_type: str       # "perpetual" for perps we care about
+    min_quantity: float = 0.0
+    tick_size: float = 0.0
+    is_active: bool = True
 
 
 @dataclass
@@ -51,6 +63,13 @@ class ExchangeClient(ABC):
 
     @abstractmethod
     def get_ticker(self, symbol: str) -> Ticker:
+        ...
+
+    @abstractmethod
+    def list_instruments(self) -> List[InstrumentInfo]:
+        """Return all perpetual futures instruments available on this exchange.
+        Used by CoinScanner to discover tradeable coins and build the
+        cross-exchange symbol map."""
         ...
 
     @abstractmethod

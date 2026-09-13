@@ -110,3 +110,31 @@ PRICE_POLL_INTERVAL_SEC = 10     # requirement #1
 ORDER_REPRICE_INTERVAL_SEC = 10  # requirement #7/#8
 MAX_BASIS_DRIFT_PCT = 0.15       # kill-switch: close both legs if basis moves against you by this %
 MIN_NET_EDGE_PCT = 0.05          # don't enter unless funding edge clears round-trip cost by this margin (%)
+
+# ---------------------------------------------------------------------------
+# Slippage & execution cost parameters
+# ---------------------------------------------------------------------------
+SLIPPAGE_BPS_PER_LEG = 0.0002   # 0.02% per leg — conservative for majors, may need tuning for alts
+
+# ---------------------------------------------------------------------------
+# Multi-coin scanning configuration
+# ---------------------------------------------------------------------------
+# Whitelist of base assets to scan. If empty AND SCAN_ALL_COINS is False,
+# falls back to BTC only for backward compatibility.
+COIN_WHITELIST = ["BTC", "ETH", "SOL", "XRP", "DOGE", "ADA", "AVAX", "LINK", "DOT", "MATIC"]
+
+# If True, ignores COIN_WHITELIST and scans every perpetual the exchange offers.
+SCAN_ALL_COINS = False
+
+# ---------------------------------------------------------------------------
+# Position sizing for multi-coin mode
+# ---------------------------------------------------------------------------
+# Fixed notional per trade in INR. Quantity is computed as notional / mark_price.
+# Set to 0 to fall back to the legacy TRADE_QUANTITY (fixed base-asset units).
+FIXED_NOTIONAL_INR = 10000
+
+# ---------------------------------------------------------------------------
+# Volume filter (minimum 24h volume to consider a coin tradeable)
+# ---------------------------------------------------------------------------
+MIN_VOLUME_24H = 0   # 0 = no filter; set to e.g. 1_000_000 to skip illiquid alts
+

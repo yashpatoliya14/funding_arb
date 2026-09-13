@@ -1,9 +1,26 @@
 # Funding Rate Arbitrage Bot — Delta / CoinSwitch / Shark
 
-Cross-exchange funding-rate capture bot: checks **all three exchange pair
-combinations** concurrently (shark↔coinswitch, coinswitch↔delta, delta↔shark),
-holds a hedged position across each qualifying pair through a funding snapshot,
-collects the funding payment, closes.
+Cross-exchange funding-rate capture bot with **multi-coin scanning**: discovers
+all supported perpetual futures across **all three exchanges**, matches them by
+base asset, computes the **full cost-adjusted P&L** for every opportunity, and
+executes only when the net profit clears the configured threshold.
+
+Runs all exchange pair combinations concurrently
+(shark↔coinswitch, coinswitch↔delta, delta↔shark), holds a hedged position
+through a funding snapshot, collects the payment, closes.
+
+## Key Features
+
+- **Multi-coin scanning** — automatically discovers BTC, ETH, SOL, and all
+  whitelisted coins across exchanges; no hardcoded symbols
+- **Full cost model** — both-leg funding, maker fees + 18% GST, bid/ask
+  spread cost, configurable slippage buffer — all computed before any trade
+- **Atomic dual-leg execution** — post-only orders on both exchanges,
+  synchronized repricing, leg-risk and basis-drift kill-switches
+- **Real or paper trading** — identical code path; only the exchange client
+  class changes (requirement #11)
+
+> See [`docs/`](docs/) for architecture, cost model details, and configuration reference.
 
 ## What's real vs. what needs your verification
 
@@ -31,13 +48,37 @@ cd funding_arb
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-# fill in .env with your real API keys, symbols, and Telegram bot token
+# fill in .env with your real API keys and Telegram bot token
 ```
 
 ### Telegram bot (for requirement #10 notifications)
 1. Message `@BotFather` on Telegram → `/newbot` → copy the token into `.env`.
 2. Send your new bot any message, then visit
    `https://api.telegram.org/bot<TOKEN>/getUpdates` to find your `chat_id`.
+
+## Configuration
+
+All tuning knobs live in two places:
+
+| Location | What goes here |
+|----------|---------------|
+| `.env` | API keys, sizing, coin whitelist override, Telegram credentials |
+| `config/constants.py` | Fees, leverage caps, slippage, funding schedule, thresholds |
+
+### Key `.env` variables
+
+```bash
+# Multi-coin scanning
+COIN_WHITELIST=["BTC","ETH","SOL"]   # JSON list, or empty for default
+SCAN_ALL_COINS=false                  # true = scan every perpetual
+
+# Position sizing
+FIXED_NOTIONAL_INR=10000             # ₹ per trade (0 = use TRADE_QUANTITY)
+TRADE_QUANTITY=0.001                  # base asset units (legacy fallback)
+REQUESTED_LEVERAGE=10
+```
+
+> Full configuration reference: [`docs/configuration.md`](docs/configuration.md)
 
 ## Running
 
@@ -47,11 +88,12 @@ python run_dummy.py
 ```
 This launches **3 concurrent engines** (one per exchange pair) via asyncio.
 Watch `logs/engine.log` and your Telegram chat for at least a few funding
-cycles (3x/day) before considering live money. Check that:
+cycles (3×/day) before considering live money. Check that:
 - The sanity check passes for all 3 pairs (6 exchange legs total).
-- Each pair's log lines are prefixed with its label (e.g. `[shark↔coinswitch]`).
+- Multi-coin scan discovers matching coins across both exchanges.
+- Cost breakdowns in the log show realistic fee/spread/slippage numbers.
 - Entries happen ~20 min before 05:30 / 13:30 / 21:30 IST, not at random times.
-- Simulated P&L direction matches what you'd expect given the funding sign.
+- Only positive-edge opportunities trigger execution.
 
 **Only after that, live trading:**
 ```bash
@@ -72,17 +114,50 @@ run_dummy.py / run_live.py
         ├── FundingArbEngine (coinswitch ↔ delta)
         └── FundingArbEngine (delta ↔ shark)
                 │
-                │ each engine has:
-                ├── core/price_feed.py      (req #1, #13 — 10s poll or websocket)
-                ├── core/spread_calc.py     (req #2, #6 — fee/tax-adjusted edge)
-                ├── core/leverage_sync.py   (req #5 — common leverage both exchanges)
-                ├── core/funding_window.py  (req #9 — 20-min entry lead, post-snapshot close)
-                ├── core/order_manager.py   (req #7, #8 — synced post-only orders, leg-risk, basis-drift)
-                └── core/telegram_notify.py (req #10)
+                │ each engine, every cycle:
+                ├── core/coin_scanner.py     (discover coins, match, rank by net P&L)
+                ├── core/spread_calc.py      (full cost model: fees, spread, slippage)
+                ├── core/leverage_sync.py    (common leverage both exchanges)
+                ├── core/funding_window.py   (20-min entry lead, post-snapshot close)
+                ├── core/order_manager.py    (synced post-only orders, leg-risk, basis-drift)
+                ├── core/price_feed.py       (10s poll or websocket)
+                └── core/telegram_notify.py  (entries, exits, scans, errors)
                 │
                 ▼
     exchanges/{delta,coinswitch,shark}_client.py   OR   exchanges/simulator.py
         (identical interface — engine.py never knows which one it's talking to)
+```
+
+## Project structure
+
+```
+funding_arb/
+├── config/
+│   ├── constants.py          # Fees, leverage caps, thresholds, whitelist
+│   └── settings.py           # Env-driven runtime settings
+├── core/
+│   ├── coin_scanner.py       # Multi-coin discovery, matching, ranking
+│   ├── spread_calc.py        # Full cost model + edge evaluation
+│   ├── funding_window.py     # Funding schedule timing
+│   ├── leverage_sync.py      # Cross-exchange leverage sync
+│   ├── order_manager.py      # Dual-leg order execution
+│   ├── price_feed.py         # REST polling + WebSocket feeds
+│   └── telegram_notify.py    # Telegram notifications
+├── exchanges/
+│   ├── base.py               # Abstract ExchangeClient interface
+│   ├── delta_client.py       # Delta Exchange India REST client
+│   ├── coinswitch_client.py  # CoinSwitch PRO Futures REST client
+│   ├── shark_client.py       # Shark Exchange REST client
+│   └── simulator.py          # Paper-trading simulator
+├── docs/
+│   ├── architecture.md       # System architecture & data flow
+│   ├── cost_model.md         # Full cost model reference
+│   └── configuration.md      # All configuration options
+├── engine.py                 # Main orchestrator
+├── run_dummy.py              # Paper trading entry point
+├── run_live.py               # Live trading entry point
+├── .env.example              # Environment variable template
+└── requirements.txt          # Python dependencies
 ```
 
 ## Known gaps to close before scaling size
@@ -95,11 +170,10 @@ run_dummy.py / run_live.py
 - **Delta leverage endpoint path** (`/v2/products/{symbol}/orders/leverage`)
   should be double-checked against your Delta API version — leverage-setting
   endpoints have moved before across Delta API revisions.
-- **Cross-exchange symbol mapping** (`BTCUSD` on Delta vs `BTCUSDT` on
-  CoinSwitch/Shark) means you're hedging BTC/USD exposure against BTC/USDT —
-  fine in practice since USDT tracks USD closely, but it's a small extra
-  basis source worth knowing about.
 - **No partial-fill handling beyond leg-risk close** — if an order partially
   fills, the current logic treats "any fill" as risk-relevant but doesn't
   try to true up the remaining unfilled quantity. For your stated approach
   (close immediately on any mismatch) this is intentional, but worth knowing.
+- **Instrument discovery endpoints** — the `list_instruments()` endpoints on
+  each exchange should be verified against your account. If an exchange
+  returns no instruments, the system falls back to the legacy symbol from `.env`.

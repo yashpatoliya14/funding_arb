@@ -21,7 +21,8 @@ import uuid
 import time
 from typing import Optional, Dict
 
-from exchanges.base import ExchangeClient, Ticker, OrderResult, Position
+from exchanges.base import ExchangeClient, Ticker, OrderResult, Position, InstrumentInfo
+from typing import List
 
 
 class SimulatedClient(ExchangeClient):
@@ -37,6 +38,10 @@ class SimulatedClient(ExchangeClient):
 
     def get_ticker(self, symbol: str) -> Ticker:
         return self._data_source.get_ticker(symbol)
+
+    def list_instruments(self) -> List[InstrumentInfo]:
+        """Pass through to real client — sim uses real instrument data."""
+        return self._data_source.list_instruments()
 
     # ---------------- simulated trading ----------------
 

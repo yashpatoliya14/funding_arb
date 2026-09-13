@@ -41,7 +41,8 @@ import hashlib
 import requests
 
 from config.constants import BASE_URLS, MAX_LEVERAGE
-from exchanges.base import ExchangeClient, Ticker, OrderResult, Position
+from exchanges.base import ExchangeClient, Ticker, OrderResult, Position, InstrumentInfo
+from typing import List
 
 
 class SharkClient(ExchangeClient):
@@ -87,16 +88,80 @@ class SharkClient(ExchangeClient):
     # ---------------- public/market data ----------------
 
     def get_ticker(self, symbol: str) -> Ticker:
-        data = self._get("/v1/market/ticker24Hr", params={"symbol": symbol}, authed=False)
+        data = self._get(f"/v1/market/ticker24Hr/{symbol}", authed=False)
         result = data.get("data", data)
+        last_price = float(result.get("c", result.get("lastPrice", 0)))
+        
+        # Depth endpoint gives real bid/ask for spread & post-only order simulation
+        best_bid = last_price
+        best_ask = last_price
+        try:
+            depth = self._get(f"/v1/market/depth/{symbol}", authed=False).get("data", {})
+            bids = depth.get("b", [])
+            asks = depth.get("a", [])
+            if bids and len(bids) > 0:
+                best_bid = float(bids[0][0])
+            if asks and len(asks) > 0:
+                best_ask = float(asks[0][0])
+        except Exception:
+            pass
+
         return Ticker(
             symbol=symbol,
-            best_bid=float(result.get("bidPrice", result.get("lastPrice", 0))),
-            best_ask=float(result.get("askPrice", result.get("lastPrice", 0))),
-            mark_price=float(result.get("markPrice", result.get("lastPrice", 0))),
+            best_bid=best_bid,
+            best_ask=best_ask,
+            mark_price=float(result.get("w", last_price)) or last_price,
             funding_rate=float(result.get("fundingRate", 0)) if result.get("fundingRate") else None,
             next_funding_time_ms=result.get("nextFundingTime"),
         )
+
+    def list_instruments(self) -> List[InstrumentInfo]:
+        """Fetch all instruments from Shark's exchangeInfo and filter for perpetuals."""
+        import logging
+        log = logging.getLogger("shark_client")
+        try:
+            data = self._get("/v1/market/exchangeInfo", authed=False)
+            items = data.get("data", data)
+            if isinstance(items, dict) and "symbols" in items:
+                items = items["symbols"]
+            if not isinstance(items, list):
+                items = [items] if isinstance(items, dict) else []
+            instruments = []
+            for item in items:
+                symbol = str(item.get("symbol", item.get("contractPair", item.get("pair", ""))))
+                if not symbol:
+                    continue
+                ctype = str(item.get("contractType", item.get("type", ""))).lower()
+                if ctype and ctype not in ("perpetual", "perp", "perpetual_futures"):
+                    continue
+                status = str(item.get("status", item.get("contractStatus", ""))).lower()
+                if status and status not in ("trading", "active", "live"):
+                    continue
+                base = str(item.get("baseAsset", item.get("base", ""))).upper()
+                quote = str(item.get("quoteAsset", item.get("quote", ""))).upper()
+                if not base:
+                    for suffix in ("USDT", "USD", "INR", "BUSD"):
+                        if symbol.upper().endswith(suffix):
+                            base = symbol.upper()[:-len(suffix)]
+                            quote = suffix
+                            break
+                    else:
+                        base = symbol.upper()
+                        quote = "INR"
+                instruments.append(InstrumentInfo(
+                    symbol=symbol,
+                    base_asset=base,
+                    quote_asset=quote or "INR",
+                    contract_type="perpetual",
+                    min_quantity=float(item.get("minQty", item.get("minQuantity", 0)) or 0),
+                    tick_size=float(item.get("tickSize", item.get("pricePrecision", 0)) or 0),
+                    is_active=True,
+                ))
+            log.info("Shark: discovered %d perpetual instruments", len(instruments))
+            return instruments
+        except Exception as e:
+            log.warning("Shark list_instruments failed: %s", e)
+            return []
 
     # ---------------- trading ----------------
 
