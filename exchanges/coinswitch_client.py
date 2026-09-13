@@ -201,8 +201,15 @@ class CoinswitchClient(ExchangeClient):
         # Instead, we assume the hardcoded list and fetch live data via WebSocket.
         for sym in known_symbols:
             sym = sym.strip().upper()
-            base = sym.replace("USDT", "").replace("USD", "").replace("INR", "").upper()
-            quote = "USDT" if sym.endswith("USDT") else ("USD" if sym.endswith("USD") else "INR")
+            if sym.endswith("USDT"):
+                base = sym[:-4]
+                quote = "USDT"
+            elif sym.endswith("USD") or sym.endswith("INR"):
+                base = sym[:-3]
+                quote = sym[-3:]
+            else:
+                base = sym
+                quote = "USDT"
             instruments.append(InstrumentInfo(
                 symbol=sym,
                 base_asset=base,

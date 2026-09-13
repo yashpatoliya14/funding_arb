@@ -90,6 +90,9 @@ class TestPartialFill:
         self.mock_a.get_order_status.return_value = OrderResult("A", "1", "BTC", "buy", 100.0, 1.0, "filled", filled_quantity=1.0)
         self.mock_b.get_order_status.return_value = OrderResult("B", "2", "BTC", "sell", 101.0, 1.0, "open", filled_quantity=0.0)
         
+        # Manually set a_filled_time to be outside grace period
+        state.a_filled_time = time.time() - 20.0
+        
         aborted = self.manager.check_leg_risk(state)
         
         assert aborted is True
@@ -111,6 +114,9 @@ class TestPartialFill:
         
         self.mock_a.get_order_status.return_value = OrderResult("A", "1", "BTC", "buy", 100.0, 1.0, "partially_filled", filled_quantity=0.4)
         self.mock_b.get_order_status.return_value = OrderResult("B", "2", "BTC", "sell", 101.0, 1.0, "open", filled_quantity=0.0)
+        
+        # Manually set a_filled_time to be outside grace period
+        state.a_filled_time = time.time() - 20.0
         
         aborted = self.manager.check_leg_risk(state)
         

@@ -22,6 +22,8 @@ class DualLegState:
     aborted: bool = False
     abort_reason: str = ""
     reprice_count: int = 0
+    a_filled_time: Optional[float] = None
+    b_filled_time: Optional[float] = None
 
 
 class DualLegOrderManager:
@@ -47,8 +49,13 @@ class DualLegOrderManager:
         price_a = self._quote_price(ticker_a, side_a)
         price_b = self._quote_price(ticker_b, side_b)
 
-        order_a = self.client_a.place_limit_order(symbol_a, side_a, price_a, quantity_a, post_only=True)
-        order_b = self.client_b.place_limit_order(symbol_b, side_b, price_b, quantity_b, post_only=True)
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            future_a = executor.submit(self.client_a.place_limit_order, symbol_a, side_a, price_a, quantity_a, True)
+            future_b = executor.submit(self.client_b.place_limit_order, symbol_b, side_b, price_b, quantity_b, True)
+            
+            order_a = future_a.result()
+            order_b = future_b.result()
 
         entry_basis_pct = abs(price_a - price_b) / min(price_a, price_b) * 100
 
@@ -90,41 +97,56 @@ class DualLegOrderManager:
         a_filled = status_a.status in ("filled", "closed", "partially_filled")
         b_filled = status_b.status in ("filled", "closed", "partially_filled")
 
+        if a_filled and not state.a_filled_time:
+            state.a_filled_time = time.time()
+        if b_filled and not state.b_filled_time:
+            state.b_filled_time = time.time()
+
         if a_filled and b_filled:
             state.both_filled = True
             return False
 
+        now = time.time()
+        # Give the second leg 15 seconds to fill/reprice before aborting
+        grace_period_sec = 15.0
+
         if a_filled and not b_filled:
-            log.warning("Leg risk: %s filled, %s did not — closing %s",
-                        self.client_a.name, self.client_b.name, self.client_a.name)
-            self.client_b.cancel_order(state.symbol_b, state.order_b.order_id)
-            self.client_a.close_position_market(state.symbol_a)
-            state.aborted = True
-            state.abort_reason = "leg_risk_a_only"
-            if self.notifier:
-                self.notifier.leg_risk(
-                    state.symbol_a, state.symbol_b,
-                    self.client_a.name, self.client_b.name,
-                    self.client_a.name, self.client_b.name,
-                    state.symbol_a, state.symbol_b,
-                )
-            return True
+            if now - state.a_filled_time > grace_period_sec:
+                log.warning("Leg risk: %s filled, %s did not after grace period — closing %s",
+                            self.client_a.name, self.client_b.name, self.client_a.name)
+                self.client_b.cancel_order(state.symbol_b, state.order_b.order_id)
+                self.client_a.close_position_market(state.symbol_a)
+                state.aborted = True
+                state.abort_reason = "leg_risk_a_only"
+                if self.notifier:
+                    self.notifier.leg_risk(
+                        state.symbol_a, state.symbol_b,
+                        self.client_a.name, self.client_b.name,
+                        self.client_a.name, self.client_b.name,
+                        state.symbol_a, state.symbol_b,
+                    )
+                return True
+            else:
+                log.info("Leg risk: %s filled, waiting for %s (%.1fs elapsed)", self.client_a.name, self.client_b.name, now - state.a_filled_time)
 
         if b_filled and not a_filled:
-            log.warning("Leg risk: %s filled, %s did not — closing %s",
-                        self.client_b.name, self.client_a.name, self.client_b.name)
-            self.client_a.cancel_order(state.symbol_a, state.order_a.order_id)
-            self.client_b.close_position_market(state.symbol_b)
-            state.aborted = True
-            state.abort_reason = "leg_risk_b_only"
-            if self.notifier:
-                self.notifier.leg_risk(
-                    state.symbol_a, state.symbol_b,
-                    self.client_a.name, self.client_b.name,
-                    self.client_b.name, self.client_a.name,
-                    state.symbol_b, state.symbol_a,
-                )
-            return True
+            if now - state.b_filled_time > grace_period_sec:
+                log.warning("Leg risk: %s filled, %s did not after grace period — closing %s",
+                            self.client_b.name, self.client_a.name, self.client_b.name)
+                self.client_a.cancel_order(state.symbol_a, state.order_a.order_id)
+                self.client_b.close_position_market(state.symbol_b)
+                state.aborted = True
+                state.abort_reason = "leg_risk_b_only"
+                if self.notifier:
+                    self.notifier.leg_risk(
+                        state.symbol_a, state.symbol_b,
+                        self.client_a.name, self.client_b.name,
+                        self.client_b.name, self.client_a.name,
+                        state.symbol_b, state.symbol_a,
+                    )
+                return True
+            else:
+                log.info("Leg risk: %s filled, waiting for %s (%.1fs elapsed)", self.client_b.name, self.client_a.name, now - state.b_filled_time)
 
         return False
 
