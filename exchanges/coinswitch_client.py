@@ -80,16 +80,24 @@ class CoinswitchClient(ExchangeClient):
         }
         return headers, decoded_path
 
-    def _request(self, method: str, path: str, params: dict = None, body: dict = None):
+    def _request(self, method: str, path: str, params: dict = None, body: dict = None, retries: int = 3):
         headers, decoded_path = self._sign(method, path, params)
         url = self.base_url + decoded_path
-        resp = self.session.request(method, url, headers=headers,
-                                     data=json.dumps(body) if body else None, timeout=10)
+        
+        for attempt in range(retries):
+            resp = self.session.request(method, url, headers=headers,
+                                         data=json.dumps(body) if body else None, timeout=10)
+            if resp.status_code == 429:
+                time.sleep(1)
+                continue
+            resp.raise_for_status()
+            try:
+                return resp.json()
+            except Exception:
+                return {}
+        
         resp.raise_for_status()
-        try:
-            return resp.json()
-        except Exception:
-            return {}  # empty response — callers should handle None/empty data
+        return {}
 
     # ---------------- public/market data ----------------
 
@@ -153,8 +161,20 @@ class CoinswitchClient(ExchangeClient):
         raise RuntimeError(f"CoinSwitch WebSocket timed out fetching ticker for {symbol}")
 
     def get_ticker(self, symbol: str) -> Ticker:
-        # Always use the public WebSocket stream for tickers to avoid aggressive REST rate limits.
-        return self._get_ticker_ws(symbol)
+        # Try WebSocket first, fallback to REST if blocked (e.g. VPS datacenter IPs blocked by Cloudflare)
+        try:
+            return self._get_ticker_ws(symbol)
+        except RuntimeError:
+            # Fallback to REST
+            data = self._request("GET", "/trade/api/v2/futures/ticker", params={"symbol": symbol, "exchange": "EXCHANGE_2"})["data"]
+            return Ticker(
+                symbol=symbol,
+                best_bid=float(data.get("best_bid_price", 0)),
+                best_ask=float(data.get("best_ask_price", 0)),
+                mark_price=float(data.get("mark_price", data.get("last_price", 0))),
+                funding_rate=float(data.get("funding_rate", 0)) if data.get("funding_rate") else None,
+                next_funding_time_ms=data.get("next_funding_time"),
+            )
 
     def list_instruments(self) -> List[InstrumentInfo]:
         """Discover futures instruments from CoinSwitch.
