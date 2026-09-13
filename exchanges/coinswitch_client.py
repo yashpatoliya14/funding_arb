@@ -86,7 +86,10 @@ class CoinswitchClient(ExchangeClient):
         resp = self.session.request(method, url, headers=headers,
                                      data=json.dumps(body) if body else None, timeout=10)
         resp.raise_for_status()
-        return resp.json()
+        try:
+            return resp.json()
+        except Exception:
+            return {}  # empty response — callers should handle None/empty data
 
     # ---------------- public/market data ----------------
 
@@ -173,7 +176,10 @@ class CoinswitchClient(ExchangeClient):
         log = logging.getLogger("coinswitch_client")
         try:
             data = self._request("GET", "/trade/api/v2/futures/instrument_info")
-            items = data.get("data", data)
+            # data may be None (empty response) — guard against that
+            items = data.get("data") if data else None
+            if items is None:
+                return []   # no instruments returned
             if isinstance(items, dict):
                 # Some versions return {symbol: info, ...}
                 items = list(items.values()) if not isinstance(list(items.values())[0] if items else None, dict) else [{"symbol": k, **v} for k, v in items.items()]
