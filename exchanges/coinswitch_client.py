@@ -144,8 +144,8 @@ class CoinswitchClient(ExchangeClient):
                 if _CS_SHARED_SIO.connected:
                     _CS_SHARED_SIO.emit("FETCH_TICKER_INFO_CS_PRO", {"event": "subscribe", "pair": symbol}, namespace=cfg["ws_namespace"])
 
-        # Wait up to 3s for the first tick
-        for _ in range(30):
+        # Wait up to 15s for the first tick (cold start on VPS can take a few seconds to connect)
+        for _ in range(150):
             if symbol in _CS_SHARED_CACHE:
                 return _CS_SHARED_CACHE[symbol]
             time.sleep(0.1)
