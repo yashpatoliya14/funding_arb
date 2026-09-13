@@ -1,0 +1,28 @@
+name: Deploy to VM
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate deploy secrets
+        run: |
+          test -n "${{ secrets.VM_HOST }}" || (echo "VM_HOST is missing" && exit 1)
+          test -n "${{ secrets.VM_USER }}" || (echo "VM_USER is missing" && exit 1)
+          test -n "${{ secrets.VM_PORT }}" || (echo "VM_PORT is missing" && exit 1)
+          test -n "${{ secrets.VM_SSH_KEY }}" || (echo "VM_SSH_KEY is missing" && exit 1)
+
+      - name: Deploy to VM
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          port: ${{ secrets.VM_PORT }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            ~/deploy-funding.sh
