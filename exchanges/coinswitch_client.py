@@ -291,7 +291,8 @@ class CoinswitchClient(ExchangeClient):
         )
 
     def get_position(self, symbol: str):
-        data = self._request("GET", "/trade/api/v2/futures/positions", params={"symbol": symbol, "exchange": "EXCHANGE_2"})["data"]
+        response = self._request("GET", "/trade/api/v2/futures/positions", params={"symbol": symbol, "exchange": "EXCHANGE_2"})
+        data = response.get("data", [])
         positions = data if isinstance(data, list) else [data]
         for p in positions:
             if p.get("symbol") == symbol and float(p.get("quantity", 0)) != 0:
