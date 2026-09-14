@@ -164,3 +164,82 @@ class PriceFeed:
         # Funding rate isn't in the order-book stream — keep a slow REST poll
         # for that field specifically (caller wires this via start_polling too,
         # same as for Delta above).
+
+    # ---------------- websocket: Shark (Socket.IO) ----------------
+
+    def start_shark_ws(self, symbol: str):
+        try:
+            import socketio
+        except ImportError:
+            log.warning("python-socketio not installed. Falling back to polling for Shark.")
+            return
+
+        cfg = BASE_URLS["shark"]
+        ws_url = cfg.get("ws")
+        if not ws_url:
+            log.warning("Shark WS URL not configured. Falling back to polling.")
+            return
+
+        def _run():
+            while not self._stop.is_set():
+                sio = socketio.Client(reconnection=True)
+
+                @sio.on("depthUpdate")
+                def on_depth_update(data):
+                    try:
+                        # Format is typical {'b': [['price', 'size']], 'a': [['price', 'size']]}
+                        bids = data.get("b", [])
+                        asks = data.get("a", [])
+                        best_bid = float(bids[0][0]) if bids and len(bids) > 0 else 0.0
+                        best_ask = float(asks[0][0]) if asks and len(asks) > 0 else 0.0
+                        
+                        prev = self.latest.get(self._key("shark", symbol))
+                        mark_price = prev.mark_price if prev else ((best_bid + best_ask) / 2 if (best_bid and best_ask) else 0.0)
+                        
+                        self.latest[self._key("shark", symbol)] = Ticker(
+                            symbol=symbol, best_bid=best_bid, best_ask=best_ask,
+                            mark_price=mark_price,
+                            funding_rate=prev.funding_rate if prev else None,
+                            next_funding_time_ms=prev.next_funding_time_ms if prev else None,
+                        )
+                    except Exception as e:
+                        log.warning("Shark WS depthUpdate parse error: %s", e)
+
+                @sio.on("markPriceUpdate")
+                def on_mark_price_update(data):
+                    try:
+                        # Format has mark price usually in 'p' or 'm' or 'markPrice'
+                        # Just in case, try a few fields
+                        mp = data.get("markPrice") or data.get("m") or data.get("p")
+                        if mp:
+                            mp = float(mp)
+                            prev = self.latest.get(self._key("shark", symbol))
+                            best_bid = prev.best_bid if prev else 0.0
+                            best_ask = prev.best_ask if prev else 0.0
+                            
+                            self.latest[self._key("shark", symbol)] = Ticker(
+                                symbol=symbol, best_bid=best_bid, best_ask=best_ask,
+                                mark_price=mp,
+                                funding_rate=prev.funding_rate if prev else None,
+                                next_funding_time_ms=prev.next_funding_time_ms if prev else None,
+                            )
+                    except Exception as e:
+                        log.warning("Shark WS markPriceUpdate parse error: %s", e)
+
+                try:
+                    sio.connect(ws_url, transports=["websocket"], wait_timeout=10)
+                    
+                    # Construct topic strings e.g., btcinr@depth_0.1, btcinr@markPrice
+                    sym_lower = symbol.lower()
+                    topics = [f"{sym_lower}@depth_0.1", f"{sym_lower}@markPrice"]
+                    sio.emit("subscribe", {"params": topics})
+                    
+                    sio.wait()
+                except Exception as e:
+                    log.warning("Shark WS crashed, reconnecting in 5s: %s", e)
+                if not self._stop.is_set():
+                    time.sleep(5)
+
+        t = threading.Thread(target=_run, daemon=True, name="ws-shark")
+        t.start()
+        self._threads.append(t)

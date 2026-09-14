@@ -31,7 +31,6 @@ def test_imports():
         "exchanges.coinswitch_client",
         "exchanges.delta_client",
         "exchanges.shark_client",
-        "exchanges.simulator",
         "engine",
     ]
     for module_name in modules_to_test:

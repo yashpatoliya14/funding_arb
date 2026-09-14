@@ -78,12 +78,8 @@ BASE_URLS = {
     },
     "shark": {
         "rest": "https://api.sharkexchange.in",
-        # Shark's docs mention authenticated + public websockets with a
-        # listen-key pattern (like Binance), but the exact connect handshake
-        # wasn't fully available at build time. shark_client.py falls back
-        # to REST polling every 10s until you verify the WS handshake
-        # against https://docs.sharkexchange.in/#web-sockets yourself.
-        "ws": None,
+        # Shark's public websocket (using Socket.IO).
+        "ws": "https://fawss.sharkexchange.in/",
     },
 }
 
@@ -105,7 +101,7 @@ DEFAULT_FUNDING_TIMES_IST = ["05:30", "13:30", "21:30"]
 # Strategy thresholds (tune these — they are starting points, not gospel)
 # ---------------------------------------------------------------------------
 ENTRY_LEAD_MINUTES = 20          # enter this many minutes before funding snapshot
-POST_SNAPSHOT_CLOSE_DELAY_SEC = 30   # wait this long after snapshot, then close both legs
+POST_SNAPSHOT_CLOSE_DELAY_SEC = 60   # wait this long after snapshot, then close both legs
 PRICE_POLL_INTERVAL_SEC = 10     # requirement #1
 ORDER_REPRICE_INTERVAL_SEC = 10  # requirement #7/#8
 MAX_REPRICES = 10

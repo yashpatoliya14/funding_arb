@@ -12,7 +12,7 @@ the funding snapshot, then closing.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    run_dummy.py / run_live.py                   │
+│                          run_live.py                            │
 │            Build exchange clients, configure engines            │
 └──────────────────────────┬──────────────────────────────────────┘
                            │
@@ -52,10 +52,10 @@ the funding snapshot, then closing.
 ┌─────────────────────────────────────────────────────────────────┐
 │                    ExchangeClient (interface)                    │
 │                                                                 │
-│  ┌──────────┐  ┌──────────────┐  ┌──────────┐  ┌───────────┐   │
-│  │  Delta   │  │  CoinSwitch  │  │  Shark   │  │ Simulator │   │
-│  │  Client  │  │   Client     │  │  Client  │  │  Client   │   │
-│  └──────────┘  └──────────────┘  └──────────┘  └───────────┘   │
+│  ┌──────────┐  ┌──────────────┐  ┌──────────┐                  │
+│  │  Delta   │  │  CoinSwitch  │  │  Shark   │                  │
+│  │  Client  │  │   Client     │  │  Client  │                  │
+│  └──────────┘  └──────────────┘  └──────────┘                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -135,8 +135,7 @@ class ExchangeClient(ABC):
 ```
 
 The engine NEVER imports a specific client class — it only talks through this
-interface. Swapping between `DeltaClient` and `SimulatedClient(DeltaClient)`
-requires zero code changes in `engine.py`.
+interface.
 
 ## Exchange Auth Schemes
 

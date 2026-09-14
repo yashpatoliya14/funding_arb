@@ -26,12 +26,7 @@ established venues (thin track record, mixed execution-quality reports).
 Before routing real capital, start with small size and confirm withdrawal
 reliability yourself.
 
-⚠️ WebSocket: Shark's docs reference "Authenticated Web Sockets" and a
-listen-key pattern (create/get/update/delete), similar to Binance, but the
-full connection handshake wasn't available in the excerpt used to build this
-file. This client uses REST polling every 10s (see core/price_feed.py) —
-swap in a WS subscription later once you've confirmed the handshake against
-https://docs.sharkexchange.in/#web-sockets yourself.
+
 """
 
 import time

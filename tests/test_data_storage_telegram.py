@@ -59,7 +59,7 @@ class TestTelegramMock:
         notifier = TelegramNotifier("fake_token", "fake_chat_id", enabled=True)
         
         with patch("requests.post") as mock_post:
-            notifier.startup(mode="PAPER", exchange_pairs=[("A", "B")], scan_mode="ALL", leverage=10, notional_inr=1000, quantity=1.0)
+            notifier.startup(mode="LIVE", exchange_pairs=[("A", "B")], scan_mode="ALL", leverage=10, notional_inr=1000, quantity=1.0)
             assert mock_post.called
             
             # API keys shouldn't be in message

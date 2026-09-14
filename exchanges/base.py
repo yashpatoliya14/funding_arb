@@ -1,10 +1,9 @@
 """
-Common interface every exchange client (real or simulated) implements.
+Common interface every exchange client implements.
 
 The engine only ever talks to this interface — it never imports
 DeltaClient/CoinswitchClient/SharkClient directly. That's what lets the
-same engine code run against the dummy simulator (requirement #11) and
-against real exchanges with zero changes to engine.py.
+same engine code run against real exchanges with zero changes to engine.py.
 """
 
 from abc import ABC, abstractmethod
@@ -57,7 +56,7 @@ class Position:
 
 
 class ExchangeClient(ABC):
-    """Every method below must be implemented by real clients AND the simulator."""
+    """Every method below must be implemented by real clients."""
 
     name: str = "base"
 

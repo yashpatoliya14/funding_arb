@@ -1,7 +1,7 @@
 """
 LIVE trading entry point — places REAL orders with REAL money on REAL
 exchanges. Requires explicit confirmation every time it's started, and runs
-engine.sanity_check() first, same as run_dummy.py, before touching an order.
+engine.sanity_check() first before touching an order.
 
 Multi-coin mode: each engine dynamically scans all supported coins on its
 exchange pair each funding cycle, selects the best opportunity, verifies
@@ -63,8 +63,7 @@ def main():
     print(f"Notional per trade: ₹{settings.FIXED_NOTIONAL_INR:.0f}" if settings.FIXED_NOTIONAL_INR > 0
           else f"Quantity: {settings.TRADE_QUANTITY}")
     print(f"Leverage: {settings.REQUESTED_LEVERAGE}x")
-    print("Have you run run_dummy.py successfully and reviewed logs/engine.log? "
-          "Have you re-verified the fee/leverage numbers in config/constants.py "
+    print("Have you re-verified the fee/leverage numbers in config/constants.py "
           "against your own account dashboards?")
     print("=" * 70)
     answer = input(f"Type '{CONFIRM_PHRASE}' to proceed: ").strip()

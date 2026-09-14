@@ -17,8 +17,7 @@ through a funding snapshot, collects the payment, closes.
   spread cost, configurable slippage buffer — all computed before any trade
 - **Atomic dual-leg execution** — post-only orders on both exchanges,
   synchronized repricing, leg-risk and basis-drift kill-switches
-- **Real or paper trading** — identical code path; only the exchange client
-  class changes (requirement #11)
+- **Live Trading Only** — places real orders directly on the exchanges.
 
 > See [`docs/`](docs/) for architecture, cost model details, and configuration reference.
 
@@ -32,7 +31,7 @@ safe to run with real money," and only you can close that gap:
 1. **API response field names drift between versions.** I wrote each client
    against the documented shape, but exchanges rename fields (`filled_size`
    vs `filledQty` etc.) without always updating docs same-day. Run
-   `run_dummy.py`'s sanity check and read the raw JSON it logs before trusting it.
+   `run_live.py`'s sanity check and read the raw JSON it logs before trusting it.
 2. **Fee/leverage numbers in `config/constants.py` are researched, not
    fetched live from your account.** Your actual tier may differ (referral
    codes, volume tiers, promos). Re-check against your account dashboard.
@@ -82,30 +81,24 @@ REQUESTED_LEVERAGE=10
 
 ## Running
 
-**Always start here — forward-test with fake money, real prices, real fill logic:**
+**Live trading:**
 ```bash
-python run_dummy.py
+python run_live.py
 ```
+This requires typing a confirmation phrase and runs a sanity check
+against your real accounts (read-only calls) before placing a single order.
 This launches **3 concurrent engines** (one per exchange pair) via asyncio.
-Watch `logs/engine.log` and your Telegram chat for at least a few funding
-cycles (3×/day) before considering live money. Check that:
+Watch `logs/engine.log` and your Telegram chat to monitor:
 - The sanity check passes for all 3 pairs (6 exchange legs total).
 - Multi-coin scan discovers matching coins across both exchanges.
 - Cost breakdowns in the log show realistic fee/spread/slippage numbers.
 - Entries happen ~20 min before 05:30 / 13:30 / 21:30 IST, not at random times.
 - Only positive-edge opportunities trigger execution.
 
-**Only after that, live trading:**
-```bash
-python run_live.py
-```
-This requires typing a confirmation phrase and re-runs the sanity check
-against your real accounts (read-only calls) before placing a single order.
-
 ## How the pieces fit together
 
 ```
-run_dummy.py / run_live.py
+run_live.py
         │
         ▼
     MultiPairRunner  ── asyncio.gather() over 3 concurrent engines
@@ -124,7 +117,7 @@ run_dummy.py / run_live.py
                 └── core/telegram_notify.py  (entries, exits, scans, errors)
                 │
                 ▼
-    exchanges/{delta,coinswitch,shark}_client.py   OR   exchanges/simulator.py
+    exchanges/{delta,coinswitch,shark}_client.py
         (identical interface — engine.py never knows which one it's talking to)
 ```
 
@@ -148,13 +141,12 @@ funding_arb/
 │   ├── delta_client.py       # Delta Exchange India REST client
 │   ├── coinswitch_client.py  # CoinSwitch PRO Futures REST client
 │   ├── shark_client.py       # Shark Exchange REST client
-│   └── simulator.py          # Paper-trading simulator
+
 ├── docs/
 │   ├── architecture.md       # System architecture & data flow
 │   ├── cost_model.md         # Full cost model reference
 │   └── configuration.md      # All configuration options
 ├── engine.py                 # Main orchestrator
-├── run_dummy.py              # Paper trading entry point
 ├── run_live.py               # Live trading entry point
 ├── .env.example              # Environment variable template
 └── requirements.txt          # Python dependencies

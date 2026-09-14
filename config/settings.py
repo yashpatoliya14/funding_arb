@@ -41,7 +41,7 @@ SCAN_ALL_COINS = os.getenv("SCAN_ALL_COINS", "false").lower() == "true"
 # --- Loop pacing ---
 MAIN_LOOP_INTERVAL_SEC = int(os.getenv("MAIN_LOOP_INTERVAL_SEC", "10"))
 
-# --- API credentials (leave blank for dummy/sim mode) ---
+# --- API credentials ---
 DELTA_API_KEY = os.getenv("DELTA_API_KEY", "")
 DELTA_API_SECRET = os.getenv("DELTA_API_SECRET", "")
 
@@ -56,5 +56,3 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 TELEGRAM_ENABLED = os.getenv("TELEGRAM_ENABLED", "true").lower() == "true"
 
-# --- Simulator starting balance (paper trading only) ---
-SIM_STARTING_BALANCE_INR = float(os.getenv("SIM_STARTING_BALANCE_INR", "100000"))
