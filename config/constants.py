@@ -71,7 +71,7 @@ BASE_URLS = {
         "ws": "wss://socket.india.delta.exchange",
     },
     "coinswitch": {
-        "rest": "https://coinswitch.co",
+        "rest": "https://api-trading.coinswitch.co",
         "ws": "wss://ws.coinswitch.co",
         "ws_namespace": "/exchange_2",
         "ws_path": "/pro/realtime-rates-socket/futures/exchange_2",
