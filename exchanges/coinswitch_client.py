@@ -281,7 +281,7 @@ class CoinswitchClient(ExchangeClient):
 
     def get_order_status(self, symbol: str, order_id: str) -> OrderResult:
         data = self._request("GET", "/trade/api/v2/futures/order",
-                              params={"symbol": symbol, "order_id": order_id})["data"]
+                              params={"symbol": symbol, "order_id": order_id, "exchange": "EXCHANGE_2"})["data"]
         return OrderResult(
             exchange="coinswitch", order_id=str(data["order_id"]), symbol=symbol,
             side=data.get("side", "").lower(), price=float(data.get("price", 0)),
@@ -291,7 +291,7 @@ class CoinswitchClient(ExchangeClient):
         )
 
     def get_position(self, symbol: str):
-        data = self._request("GET", "/trade/api/v2/futures/positions", params={"symbol": symbol})["data"]
+        data = self._request("GET", "/trade/api/v2/futures/positions", params={"symbol": symbol, "exchange": "EXCHANGE_2"})["data"]
         positions = data if isinstance(data, list) else [data]
         for p in positions:
             if p.get("symbol") == symbol and float(p.get("quantity", 0)) != 0:
