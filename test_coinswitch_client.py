@@ -28,7 +28,7 @@ def main():
     print("\n[2] Fetching Coin List (list_instruments)...")
     try:
         instruments = client.list_instruments()
-        print(f"✅ Successfully loaded {len(instruments)} instruments.")
+        print(f"[SUCCESS] Successfully loaded {len(instruments)} instruments.")
         
         # Display the first 10 coins as an example
         print("Sample of available coins:")
@@ -38,30 +38,30 @@ def main():
             print(f"  ... and {len(instruments) - 10} more.")
             
     except Exception as e:
-        print(f"❌ Failed to fetch instruments: {e}")
+        print(f"[ERROR] Failed to fetch instruments: {e}")
 
     print("\n[3] Testing Authenticated Endpoint (get_position for BTCUSDT)...")
     try:
         position = client.get_position("BTCUSDT")
-        print("✅ Authentication successful! Bypassed Cloudflare.")
+        print("[SUCCESS] Authentication successful! Bypassed Cloudflare.")
         if position:
             print(f"  -> Open Position: {position}")
         else:
             print("  -> No open positions for BTCUSDT.")
     except Exception as e:
-        print(f"❌ Failed to fetch position: {e}")
+        print(f"[ERROR] Failed to fetch position: {e}")
 
     print("\n[4] Testing Ticker Fetch (get_ticker for BTCUSDT)...")
     try:
         # Note: This will try the WebSocket first, then fallback to REST if blocked
         ticker = client.get_ticker("BTCUSDT")
-        print("✅ Successfully fetched ticker.")
+        print("[SUCCESS] Successfully fetched ticker.")
         print(f"  -> Mark Price: {ticker.mark_price}")
         print(f"  -> Best Bid: {ticker.best_bid}")
         print(f"  -> Best Ask: {ticker.best_ask}")
         print(f"  -> Funding Rate: {ticker.funding_rate}")
     except Exception as e:
-        print(f"❌ Failed to fetch ticker: {e}")
+        print(f"[ERROR] Failed to fetch ticker: {e}")
         
     print("\n==================================================")
     print("                 Test Complete                    ")
