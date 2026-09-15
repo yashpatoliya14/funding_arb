@@ -1,4 +1,4 @@
-# Funding Rate Arbitrage Bot — Delta / CoinSwitch / Shark
+# Funding Rate Arbitrage Bot — Delta / Binance / Bybit
 
 Cross-exchange funding-rate capture bot with **multi-coin scanning**: discovers
 all supported perpetual futures across **all three exchanges**, matches them by
@@ -6,17 +6,20 @@ base asset, computes the **full cost-adjusted P&L** for every opportunity, and
 executes only when the net profit clears the configured threshold.
 
 Runs all exchange pair combinations concurrently
-(shark↔coinswitch, coinswitch↔delta, delta↔shark), holds a hedged position
+(delta↔binance, delta↔bybit, binance↔bybit), holds a hedged position
 through a funding snapshot, collects the payment, closes.
 
 ## Key Features
 
 - **Multi-coin scanning** — automatically discovers BTC, ETH, SOL, and all
   whitelisted coins across exchanges; no hardcoded symbols
-- **Full cost model** — both-leg funding, maker fees + 18% GST, bid/ask
-  spread cost, configurable slippage buffer — all computed before any trade
+- **Full cost model** — both-leg funding, maker fees + 18% GST (Delta only),
+  bid/ask spread cost, configurable slippage buffer — all computed before any trade
 - **Atomic dual-leg execution** — post-only orders on both exchanges,
   synchronized repricing, leg-risk and basis-drift kill-switches
+- **Direct exchange APIs** — uses Binance `premiumIndex` / `exchangeInfo` /
+  `fundingInfo` and Bybit V5 `tickers` / `instruments-info` directly for
+  funding rates and intervals — no third-party data aggregator needed
 - **Live Trading Only** — places real orders directly on the exchanges.
 
 > See [`docs/`](docs/) for architecture, cost model details, and configuration reference.
@@ -25,7 +28,7 @@ through a funding snapshot, collects the payment, closes.
 
 This was built against each exchange's **official published API docs** as of
 Sep 2026 (endpoint paths, auth schemes, request/response shapes are real, not
-guessed). But three things WILL change between "this compiles" and "this is
+guessed). But some things WILL change between "this compiles" and "this is
 safe to run with real money," and only you can close that gap:
 
 1. **API response field names drift between versions.** I wrote each client
@@ -35,10 +38,9 @@ safe to run with real money," and only you can close that gap:
 2. **Fee/leverage numbers in `config/constants.py` are researched, not
    fetched live from your account.** Your actual tier may differ (referral
    codes, volume tiers, promos). Re-check against your account dashboard.
-3. **Shark Exchange is a small, newer platform** (launched ~2025, FIU-AML
-   registered but not SEBI/RBI regulated). Independent reviews are mixed on
-   execution quality. Start with minimum size here specifically, and confirm
-   withdrawals work smoothly before scaling up.
+3. **Currency mismatch** — Delta quotes in INR/USD, while Binance/Bybit quote
+   in USDT. Cross-exchange basis and spread calculations across different
+   quote currencies need FX conversion for accurate P&L in production.
 
 ## Setup
 
@@ -54,6 +56,18 @@ cp .env.example .env
 1. Message `@BotFather` on Telegram → `/newbot` → copy the token into `.env`.
 2. Send your new bot any message, then visit
    `https://api.telegram.org/bot<TOKEN>/getUpdates` to find your `chat_id`.
+
+## API Endpoints Used
+
+| Exchange | Symbols | Funding Rate | Funding Interval |
+|----------|---------|-------------|------------------|
+| **Delta** | `/v2/products` | `/v2/tickers/{symbol}` | Fixed 8h (IST schedule) |
+| **Binance** | `/fapi/v1/exchangeInfo` | `/fapi/v1/premiumIndex` | `/fapi/v1/fundingInfo` |
+| **Bybit** | `/v5/market/instruments-info` | `/v5/market/tickers` | Same instruments API |
+
+> **Note**: Binance and Bybit market data endpoints (symbols, funding rates,
+> prices) are **public** and do not require API keys. API keys are only needed
+> for trading operations (placing orders, setting leverage, etc.).
 
 ## Configuration
 
@@ -81,6 +95,13 @@ REQUESTED_LEVERAGE=10
 
 ## Running
 
+**Scan funding rates (no trading):**
+```bash
+python match_coins.py
+```
+This scans all three exchange pairs and prints the top funding arbitrage
+opportunities with full cost breakdown. No API keys needed for Binance/Bybit.
+
 **Live trading:**
 ```bash
 python run_live.py
@@ -103,9 +124,9 @@ run_live.py
         ▼
     MultiPairRunner  ── asyncio.gather() over 3 concurrent engines
         │
-        ├── FundingArbEngine (shark ↔ coinswitch)
-        ├── FundingArbEngine (coinswitch ↔ delta)
-        └── FundingArbEngine (delta ↔ shark)
+        ├── FundingArbEngine (delta ↔ binance)
+        ├── FundingArbEngine (delta ↔ bybit)
+        └── FundingArbEngine (binance ↔ bybit)
                 │
                 │ each engine, every cycle:
                 ├── core/coin_scanner.py     (discover coins, match, rank by net P&L)
@@ -117,7 +138,7 @@ run_live.py
                 └── core/telegram_notify.py  (entries, exits, scans, errors)
                 │
                 ▼
-    exchanges/{delta,coinswitch,shark}_client.py
+    exchanges/{delta,binance,bybit}_client.py
         (identical interface — engine.py never knows which one it's talking to)
 ```
 
@@ -139,15 +160,15 @@ funding_arb/
 ├── exchanges/
 │   ├── base.py               # Abstract ExchangeClient interface
 │   ├── delta_client.py       # Delta Exchange India REST client
-│   ├── coinswitch_client.py  # CoinSwitch PRO Futures REST client
-│   ├── shark_client.py       # Shark Exchange REST client
-
+│   ├── binance_client.py     # Binance USDⓈ-M Futures REST client
+│   ├── bybit_client.py       # Bybit V5 Linear Perpetuals REST client
 ├── docs/
 │   ├── architecture.md       # System architecture & data flow
 │   ├── cost_model.md         # Full cost model reference
 │   └── configuration.md      # All configuration options
 ├── engine.py                 # Main orchestrator
 ├── run_live.py               # Live trading entry point
+├── match_coins.py            # Funding rate scanner (read-only)
 ├── .env.example              # Environment variable template
 └── requirements.txt          # Python dependencies
 ```
@@ -170,18 +191,16 @@ Make sure all tests pass.
 
 ## Known gaps to close before scaling size
 
-- **Shark WebSocket**: not wired up (REST polling only) — their docs
-  reference a listen-key private WS pattern but the handshake wasn't fully
-  available when this was built. Confirm at
-  https://docs.sharkexchange.in/#web-sockets and wire it into
-  `core/price_feed.py` if you need sub-10s data specifically from Shark.
 - **Delta leverage endpoint path** (`/v2/products/{symbol}/orders/leverage`)
   should be double-checked against your Delta API version — leverage-setting
   endpoints have moved before across Delta API revisions.
+- **Currency mismatch** — Delta uses INR/USD while Binance/Bybit use USDT.
+  For accurate cross-exchange spread and basis calculations, an FX conversion
+  layer may be needed in production.
 - **No partial-fill handling beyond leg-risk close** — if an order partially
   fills, the current logic treats "any fill" as risk-relevant but doesn't
   try to true up the remaining unfilled quantity. For your stated approach
   (close immediately on any mismatch) this is intentional, but worth knowing.
-- **Instrument discovery endpoints** — the `list_instruments()` endpoints on
-  each exchange should be verified against your account. If an exchange
-  returns no instruments, the system falls back to the legacy symbol from `.env`.
+- **Bybit pagination** — the `list_instruments()` client implements
+  `nextPageCursor` pagination to handle Bybit's 500+ symbol responses.
+  Verify this works correctly with your API access level.

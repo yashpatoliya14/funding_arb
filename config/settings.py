@@ -11,15 +11,15 @@ import json
 # The engine now discovers symbols dynamically via list_instruments(), but
 # these are kept for backward compatibility and as a sanity-check reference.
 DELTA_SYMBOL = os.getenv("DELTA_SYMBOL", "BTCUSD")
-COINSWITCH_SYMBOL = os.getenv("COINSWITCH_SYMBOL", "BTCUSDT")
-SHARK_SYMBOL = os.getenv("SHARK_SYMBOL", "BTCUSDT")
+BINANCE_SYMBOL = os.getenv("BINANCE_SYMBOL", "BTCUSDT")
+BYBIT_SYMBOL = os.getenv("BYBIT_SYMBOL", "BTCUSDT")
 
-# --- All three exchange pair combinations (funding_leg, hedge_leg) ---
+# --- All exchange pair combinations (funding_leg, hedge_leg) ---
 # Every pair is checked concurrently each funding cycle.
 EXCHANGE_PAIRS = [
-    ("shark", "coinswitch"),
-    ("coinswitch", "delta"),
-    ("delta", "shark"),
+    ("delta", "binance"),
+    ("delta", "bybit"),
+    ("binance", "bybit"),
 ]
 
 # --- Position sizing ---
@@ -45,14 +45,13 @@ MAIN_LOOP_INTERVAL_SEC = int(os.getenv("MAIN_LOOP_INTERVAL_SEC", "10"))
 DELTA_API_KEY = os.getenv("DELTA_API_KEY", "")
 DELTA_API_SECRET = os.getenv("DELTA_API_SECRET", "")
 
-COINSWITCH_API_KEY = os.getenv("COINSWITCH_API_KEY", "")
-COINSWITCH_API_SECRET = os.getenv("COINSWITCH_API_SECRET", "")
+BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "")
+BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", "")
 
-SHARK_API_KEY = os.getenv("SHARK_API_KEY", "")
-SHARK_API_SECRET = os.getenv("SHARK_API_SECRET", "")
+BYBIT_API_KEY = os.getenv("BYBIT_API_KEY", "")
+BYBIT_API_SECRET = os.getenv("BYBIT_API_SECRET", "")
 
 # --- Telegram ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 TELEGRAM_ENABLED = os.getenv("TELEGRAM_ENABLED", "true").lower() == "true"
-

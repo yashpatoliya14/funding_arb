@@ -20,8 +20,8 @@ load_dotenv()
 
 from config import settings  # noqa: E402
 from exchanges.delta_client import DeltaClient  # noqa: E402
-from exchanges.coinswitch_client import CoinswitchClient  # noqa: E402
-from exchanges.shark_client import SharkClient  # noqa: E402
+from exchanges.binance_client import BinanceClient  # noqa: E402
+from exchanges.bybit_client import BybitClient  # noqa: E402
 from core.telegram_notify import TelegramNotifier  # noqa: E402
 from engine import FundingArbEngine, MultiPairRunner  # noqa: E402
 
@@ -29,25 +29,35 @@ CONFIRM_PHRASE = "YES-I-UNDERSTAND-THE-RISK"
 
 
 def build_clients():
-    """Build one client per exchange. Credentials are required for live mode."""
+    """Build one client per exchange.
+
+    Delta requires API keys (Indian exchange, all endpoints need auth).
+    Binance and Bybit: market data works without keys, but trading requires them.
+    For scan-only mode, Binance/Bybit can run without keys.
+    """
     clients = {}
 
     if settings.DELTA_API_KEY and settings.DELTA_API_SECRET:
         clients["delta"] = DeltaClient(settings.DELTA_API_KEY, settings.DELTA_API_SECRET)
     else:
-        print("Missing API credentials for delta — check your .env file.")
-        sys.exit(1)
+        print("⚠️  Missing API credentials for Delta — Delta pairs will be skipped.")
 
-    if settings.COINSWITCH_API_KEY and settings.COINSWITCH_API_SECRET:
-        clients["coinswitch"] = CoinswitchClient(settings.COINSWITCH_API_KEY, settings.COINSWITCH_API_SECRET)
-    else:
-        print("Missing API credentials for coinswitch — check your .env file.")
-        sys.exit(1)
+    # Binance: works without keys for market data (scanning), needs keys for trading
+    clients["binance"] = BinanceClient(
+        settings.BINANCE_API_KEY, settings.BINANCE_API_SECRET
+    )
+    if not settings.BINANCE_API_KEY:
+        print("ℹ️  Binance running in scan-only mode (no API key). Trading disabled.")
 
-    if settings.SHARK_API_KEY and settings.SHARK_API_SECRET:
-        clients["shark"] = SharkClient(settings.SHARK_API_KEY, settings.SHARK_API_SECRET)
-    else:
-        print("Missing API credentials for shark — check your .env file.")
+    # Bybit: works without keys for market data (scanning), needs keys for trading
+    clients["bybit"] = BybitClient(
+        settings.BYBIT_API_KEY, settings.BYBIT_API_SECRET
+    )
+    if not settings.BYBIT_API_KEY:
+        print("ℹ️  Bybit running in scan-only mode (no API key). Trading disabled.")
+
+    if len(clients) < 2:
+        print("Need at least 2 exchange clients to run. Check your .env file.")
         sys.exit(1)
 
     return clients

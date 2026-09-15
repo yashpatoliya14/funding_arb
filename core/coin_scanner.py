@@ -287,8 +287,8 @@ def _legacy_symbol(exchange_name: str) -> str:
     """Return the legacy single-symbol from settings for backward compat."""
     return {
         "delta": settings.DELTA_SYMBOL,
-        "coinswitch": settings.COINSWITCH_SYMBOL,
-        "shark": settings.SHARK_SYMBOL,
+        "binance": settings.BINANCE_SYMBOL,
+        "bybit": settings.BYBIT_SYMBOL,
     }.get(exchange_name, "BTCUSDT")
 
 

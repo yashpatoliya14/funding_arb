@@ -13,26 +13,26 @@ class TestSymbolMatching:
         
     def test_symbol_map_common_coins(self):
         smap = SymbolMap()
-        # Mock exchange A
-        smap.mapping["BTC"] = {"shark": "BTCUSDT", "coinswitch": "BTC-USDT"}
-        smap.mapping["ETH"] = {"shark": "ETHUSDT"}
-        smap.mapping["SOL"] = {"shark": "SOLUSDT", "coinswitch": "SOL-USDT", "delta": "SOL_USD"}
+        # Mock exchanges: binance, bybit, delta
+        smap.mapping["BTC"] = {"binance": "BTCUSDT", "bybit": "BTCUSDT"}
+        smap.mapping["ETH"] = {"binance": "ETHUSDT"}
+        smap.mapping["SOL"] = {"binance": "SOLUSDT", "bybit": "SOLUSDT", "delta": "SOLUSD"}
         
         # Test finding common coins
-        common_shark_coinswitch = smap.common_coins("shark", "coinswitch")
-        assert common_shark_coinswitch == ["BTC", "SOL"]
+        common_binance_bybit = smap.common_coins("binance", "bybit")
+        assert common_binance_bybit == ["BTC", "SOL"]
         
-        common_shark_delta = smap.common_coins("shark", "delta")
-        assert common_shark_delta == ["SOL"]
+        common_binance_delta = smap.common_coins("binance", "delta")
+        assert common_binance_delta == ["SOL"]
 
     def test_rejection_logic(self):
         # Spot vs perpetual rejection, inverse vs linear is done in the exchange clients.
         # Let's test that SymbolMap handles missing correctly.
         smap = SymbolMap()
-        smap.mapping["XRP"] = {"shark": "XRPUSDT"} 
+        smap.mapping["XRP"] = {"binance": "XRPUSDT"} 
         
-        assert smap.get_symbol("XRP", "coinswitch") is None
-        assert smap.get_symbol("XRP", "shark") == "XRPUSDT"
+        assert smap.get_symbol("XRP", "bybit") is None
+        assert smap.get_symbol("XRP", "binance") == "XRPUSDT"
         
         # 29.7 wrong settlement currency rejection
         # This is handled during list_instruments (e.g. preferring USDT).

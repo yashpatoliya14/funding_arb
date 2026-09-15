@@ -125,8 +125,8 @@ class FundingArbEngine:
     def _legacy_symbol(self, exchange_name: str) -> str:
         return {
             "delta": settings.DELTA_SYMBOL,
-            "coinswitch": settings.COINSWITCH_SYMBOL,
-            "shark": settings.SHARK_SYMBOL,
+            "binance": settings.BINANCE_SYMBOL,
+            "bybit": settings.BYBIT_SYMBOL,
         }.get(exchange_name, "BTCUSDT")
 
     async def run_forever(self):
@@ -271,8 +271,10 @@ class FundingArbEngine:
             trade_qty, trade_qty,
         )
 
+        from config.constants import ENTRY_LEAD_MINUTES
         state = om.monitor_until_filled(
-            state, fresh_opp.funding_side, fresh_opp.hedge_side
+            state, fresh_opp.funding_side, fresh_opp.hedge_side, trade_qty,
+            timeout_sec=ENTRY_LEAD_MINUTES * 60
         )
 
         self._current_state = state
@@ -289,7 +291,7 @@ class FundingArbEngine:
 
 class MultiPairRunner:
     """Runs multiple FundingArbEngine instances concurrently via asyncio,
-    one per exchange pair (shark-coin, coin-delta, delta-shark)."""
+    one per exchange pair (delta-binance, delta-bybit, binance-bybit)."""
 
     def __init__(self, engines: list[FundingArbEngine]):
         self.engines = engines

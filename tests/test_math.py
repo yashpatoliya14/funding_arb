@@ -9,14 +9,14 @@ class TestFundingMathAndDifferentials:
         # A = 0.50%, B = 0.10% => Differential = +0.40%
         # A is higher -> short A, long B
         opp = evaluate_funding_trade_full(
-            "shark", "coinswitch", "BTC",
+            "binance", "bybit", "BTC",
             0.0050, 0.0010,
             50000, 50010, 50005,
             50000, 50010, 50005
         )
         assert opp.funding_side == "sell"
-        assert opp.funding_exchange == "shark"
-        assert opp.hedge_exchange == "coinswitch"
+        assert opp.funding_exchange == "binance"
+        assert opp.hedge_exchange == "bybit"
         # 0.50% - 0.10% = 0.40%
         assert pytest.approx(opp.net_funding_pct, 0.0001) == 0.40
 
@@ -25,12 +25,12 @@ class TestFundingMathAndDifferentials:
         # A (-0.05) > B (-0.10). So short A, long B.
         # Short A pays 0.05%, Long B receives 0.10%. Net = +0.05%.
         opp = evaluate_funding_trade_full(
-            "shark", "coinswitch", "BTC",
+            "binance", "bybit", "BTC",
             -0.0005, -0.0010,
             50000, 50010, 50005,
             50000, 50010, 50005
         )
-        assert opp.funding_exchange == "shark"
+        assert opp.funding_exchange == "binance"
         assert opp.funding_side == "sell"
         # 0.10% received by long, 0.05% paid by short
         assert pytest.approx(opp.funding_received_pct, 0.0001) == -0.05 # actually shorting negative rate means you PAY
@@ -43,20 +43,20 @@ class TestFundingMathAndDifferentials:
     def test_mixed_funding(self):
         # A = +0.10%, B = -0.10%
         opp = evaluate_funding_trade_full(
-            "shark", "coinswitch", "BTC",
+            "binance", "bybit", "BTC",
             0.0010, -0.0010,
             50000, 50010, 50005,
             50000, 50010, 50005
         )
         assert opp.funding_side == "sell"
-        assert opp.funding_exchange == "shark"
+        assert opp.funding_exchange == "binance"
         # Short A receives 0.10%, Long B receives 0.10%
         assert pytest.approx(opp.net_funding_pct, 0.0001) == 0.20
 
     def test_zero_funding(self):
         # A = 0, B = 0 => net 0
         opp = evaluate_funding_trade_full(
-            "shark", "coinswitch", "BTC",
+            "binance", "bybit", "BTC",
             0.0, 0.0,
             50000, 50010, 50005,
             50000, 50010, 50005
@@ -75,7 +75,7 @@ class TestFundingMathAndDifferentials:
         
         # Funding spread = 0.03
         opp = evaluate_funding_trade_full(
-            "shark", "coinswitch", "BTC",
+            "binance", "bybit", "BTC",
             0.0003, 0.0000,
             50000, 50000, 50000,
             50000, 50000, 50000
@@ -85,7 +85,7 @@ class TestFundingMathAndDifferentials:
 
         # Below threshold
         opp2 = evaluate_funding_trade_full(
-            "shark", "coinswitch", "BTC",
+            "binance", "bybit", "BTC",
             0.00029, 0.0000,
             50000, 50000, 50000,
             50000, 50000, 50000
@@ -96,7 +96,7 @@ class TestFeesAndSpread:
     def test_fee_calculations(self, monkeypatch):
         # Mock fees to specific values
         def mock_fee(exchange, maker=True):
-            if exchange == "shark": return 0.0001 # 0.01%
+            if exchange == "binance": return 0.0001 # 0.01%
             if exchange == "delta": return 0.0002 # 0.02%
             return 0.0
             
@@ -105,13 +105,13 @@ class TestFeesAndSpread:
         monkeypatch.setattr(core.spread_calc, "SLIPPAGE_BPS_PER_LEG", 0.0)
         
         opp = evaluate_funding_trade_full(
-            "shark", "delta", "BTC",
+            "binance", "delta", "BTC",
             0.0050, 0.0000,
             50000, 50000, 50000,
             50000, 50000, 50000
         )
         # Entry + Exit on both legs:
-        # Shark: 0.01% * 100 * 2 = 0.02%
+        # Binance: 0.01% * 100 * 2 = 0.02%
         # Delta: 0.02% * 100 * 2 = 0.04%
         assert pytest.approx(opp.entry_fees_pct + opp.exit_fees_pct, 0.0001) == 0.06
         
@@ -124,7 +124,7 @@ class TestFeesAndSpread:
         # F_bid=50000, F_ask=50010 (mid 50005) -> half spread = 5/50005 = 0.00999%
         # H_bid=49990, H_ask=50000 (mid 49995) -> half spread = 5/49995 = 0.01000%
         opp = evaluate_funding_trade_full(
-            "shark", "delta", "BTC",
+            "binance", "delta", "BTC",
             0.0050, 0.0000,
             50000, 50010, 50005,
             49990, 50000, 49995

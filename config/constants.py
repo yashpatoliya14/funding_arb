@@ -33,22 +33,26 @@ FEES = {
         taker=0.0005,   # 0.05%
         source_note="Delta Exchange India futures/perp fee schedule, Sep 2026",
     ),
-    "coinswitch": FeeSchedule(
-        maker=0.0002,   # 0.02%
+    "binance": FeeSchedule(
+        maker=0.0002,   # 0.02% (VIP0 USDⓈ-M Futures)
         taker=0.0005,   # 0.05%
-        source_note="CoinSwitch PRO Futures default tier, Sep 2026 — tiered by volume, reconfirm",
+        source_note="Binance Futures VIP0 default tier, Sep 2026 — tiered by volume, reconfirm",
     ),
-    "shark": FeeSchedule(
-        maker=0.00016,  # 0.016%
-        taker=0.00040,  # 0.040%
-        source_note="Shark Exchange advertised futures fees, Sep 2026",
+    "bybit": FeeSchedule(
+        maker=0.0002,    # 0.02% (Non-VIP Linear)
+        taker=0.00055,   # 0.055%
+        source_note="Bybit V5 Linear Perpetuals default tier, Sep 2026 — tiered by volume, reconfirm",
     ),
 }
 
 # GST is charged ON TOP of trading fees for Indian crypto exchanges (18%).
-# Delta explicitly charges 18% GST on fees; assume the same applies elsewhere
-# unless you confirm otherwise for CoinSwitch/Shark.
+# Delta explicitly charges 18% GST on fees.
+# Binance and Bybit are global exchanges — NO GST applies.
 GST_ON_FEES = 0.18
+
+# Which exchanges are Indian and subject to GST on trading fees.
+# Global exchanges (Binance, Bybit) are NOT subject to Indian GST.
+GST_EXCHANGES = {"delta"}
 
 # ---------------------------------------------------------------------------
 # Leverage caps per exchange (platform-wide ceiling; per-symbol may be lower —
@@ -58,8 +62,8 @@ GST_ON_FEES = 0.18
 # ---------------------------------------------------------------------------
 MAX_LEVERAGE = {
     "delta": 100,       # up to 100x on majors, less on alts — check instrument_info
-    "coinswitch": 25,   # CoinSwitch PRO Futures — reconfirm, some sources say up to 50x
-    "shark": 100,       # Shark advertises up to 150x on some pairs — check exchangeInfo
+    "binance": 125,     # up to 125x on BTCUSDT, 50x on most alts — check exchangeInfo
+    "bybit": 100,       # up to 100x on majors — check instruments-info
 }
 
 # ---------------------------------------------------------------------------
@@ -70,16 +74,13 @@ BASE_URLS = {
         "rest": "https://api.india.delta.exchange",
         "ws": "wss://socket.india.delta.exchange",
     },
-    "coinswitch": {
-        "rest": "https://coinswitch.co",
-        "ws": "wss://ws.coinswitch.co",
-        "ws_namespace": "/exchange_2",
-        "ws_path": "/pro/realtime-rates-socket/futures/exchange_2",
+    "binance": {
+        "rest": "https://fapi.binance.com",
+        "ws": "wss://fstream.binance.com",
     },
-    "shark": {
-        "rest": "https://api.sharkexchange.in",
-        # Shark's public websocket (using Socket.IO).
-        "ws": "https://fawss.sharkexchange.in/",
+    "bybit": {
+        "rest": "https://api.bybit.com",
+        "ws": "wss://stream.bybit.com",
     },
 }
 
@@ -91,16 +92,16 @@ BASE_URLS = {
 # snapshot instant — no need for second-by-second precision on entry.
 DELTA_FUNDING_TIMES_IST = ["05:30", "13:30", "21:30"]
 
-# CoinSwitch / Shark: standard 8-hour perpetual funding cycle is industry
-# default (00:00 / 08:00 / 16:00 UTC = 05:30 / 13:30 / 21:30 IST) — but
-# CONFIRM per-symbol via each exchange's instrument/contract-info endpoint,
-# since some alt pairs use shorter intervals.
+# Binance / Bybit: standard 8-hour perpetual funding cycle is industry
+# default (00:00 / 08:00 / 16:00 UTC = 05:30 / 13:30 / 21:30 IST).
+# However, some symbols use 4h intervals — always check per-symbol via
+# the fundingInfo (Binance) or instruments-info (Bybit) endpoint.
 DEFAULT_FUNDING_TIMES_IST = ["05:30", "13:30", "21:30"]
 
 # ---------------------------------------------------------------------------
 # Strategy thresholds (tune these — they are starting points, not gospel)
 # ---------------------------------------------------------------------------
-ENTRY_LEAD_MINUTES = 20          # enter this many minutes before funding snapshot
+ENTRY_LEAD_MINUTES = 5           # enter this many minutes before funding snapshot
 POST_SNAPSHOT_CLOSE_DELAY_SEC = 60   # wait this long after snapshot, then close both legs
 PRICE_POLL_INTERVAL_SEC = 10     # requirement #1
 ORDER_REPRICE_INTERVAL_SEC = 10  # requirement #7/#8
@@ -134,4 +135,3 @@ FIXED_NOTIONAL_INR = 10000
 # Volume filter (minimum 24h volume to consider a coin tradeable)
 # ---------------------------------------------------------------------------
 MIN_VOLUME_24H = 0   # 0 = no filter; set to e.g. 1_000_000 to skip illiquid alts
-

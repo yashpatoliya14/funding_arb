@@ -1,11 +1,9 @@
 """
 Requirement #1 (fetch every 10s) & #13 (websocket over polling where possible).
 
-Delta and CoinSwitch both document public websocket ticker streams; Shark's
-docs mention websockets but the exact connect handshake wasn't confirmed at
-build time (see exchanges/shark_client.py docstring) — so Shark uses REST
-polling. All three feed into the SAME PriceFeed interface so engine.py
-doesn't care which transport is underneath.
+Delta, Binance, and Bybit all support public websocket ticker streams. All
+three feed into the SAME PriceFeed interface so engine.py doesn't care which
+transport is underneath.
 
 This module keeps a background thread per exchange updating a shared
 in-memory cache; engine.py just reads `feed.latest[symbol]`, which is either
@@ -107,139 +105,134 @@ class PriceFeed:
         t = threading.Thread(target=_run, daemon=True, name="ws-delta")
         t.start()
         self._threads.append(t)
-        # NOTE: it's a good idea to ALSO call
-        #   feed.start_polling(real_delta_client, symbol, interval_sec=30)
-        # from engine.py as a slow safety net in case this socket silently
-        # stalls without raising — last-write-wins into self.latest, so
-        # running both concurrently is harmless.
 
-    # ---------------- websocket: CoinSwitch (documented Socket.IO channel) ----------------
+    # ---------------- websocket: Binance Futures (public stream) ----------------
 
-    def start_coinswitch_ws(self, symbol: str):
+    def start_binance_ws(self, symbol: str):
+        """Binance Futures public WS stream for mark price + funding rate.
+        Stream: wss://fstream.binance.com/ws/<symbol_lower>@markPrice
+        Also subscribes to bookTicker for bid/ask updates."""
         try:
-            import socketio
+            import websocket
         except ImportError:
-            log.warning("python-socketio not installed; run `pip install python-socketio[client]`. "
-                        "Falling back to polling for CoinSwitch.")
+            log.warning("websocket-client not installed. Falling back to polling for Binance.")
             return
 
-        cfg = BASE_URLS["coinswitch"]
+        ws_url = BASE_URLS["binance"]["ws"]
+        sym_lower = symbol.lower()
+        # Combined stream for mark price + book ticker
+        stream_url = f"{ws_url}/stream?streams={sym_lower}@markPrice/{sym_lower}@bookTicker"
+
+        def on_message(ws, message):
+            try:
+                wrapper = json.loads(message)
+                stream = wrapper.get("stream", "")
+                data = wrapper.get("data", {})
+
+                prev = self.latest.get(self._key("binance", symbol))
+
+                if "markPrice" in stream:
+                    mark_price = float(data.get("p", 0))  # mark price
+                    funding_rate = float(data.get("r", 0)) if data.get("r") else None
+                    next_funding_ms = int(data.get("T", 0)) or None
+
+                    self.latest[self._key("binance", symbol)] = Ticker(
+                        symbol=symbol,
+                        best_bid=prev.best_bid if prev else mark_price,
+                        best_ask=prev.best_ask if prev else mark_price,
+                        mark_price=mark_price,
+                        funding_rate=funding_rate,
+                        next_funding_time_ms=next_funding_ms,
+                    )
+                elif "bookTicker" in stream:
+                    best_bid = float(data.get("b", 0))
+                    best_ask = float(data.get("a", 0))
+
+                    self.latest[self._key("binance", symbol)] = Ticker(
+                        symbol=symbol,
+                        best_bid=best_bid,
+                        best_ask=best_ask,
+                        mark_price=prev.mark_price if prev else (best_bid + best_ask) / 2,
+                        funding_rate=prev.funding_rate if prev else None,
+                        next_funding_time_ms=prev.next_funding_time_ms if prev else None,
+                    )
+            except Exception as e:
+                log.warning("Binance WS parse error: %s", e)
 
         def _run():
             while not self._stop.is_set():
-                sio = socketio.Client(reconnection=True)
-
-                @sio.on("FETCH_ORDER_BOOK_CS_PRO", namespace=cfg["ws_namespace"])
-                def on_book(data):
-                    try:
-                        bids = data.get("bids") or data.get("b") or []
-                        asks = data.get("asks") or data.get("a") or []
-                        best_bid = float(bids[0][0]) if bids else 0.0
-                        best_ask = float(asks[0][0]) if asks else 0.0
-                        prev = self.latest.get(self._key("coinswitch", symbol))
-                        self.latest[self._key("coinswitch", symbol)] = Ticker(
-                            symbol=symbol, best_bid=best_bid, best_ask=best_ask,
-                            mark_price=(best_bid + best_ask) / 2 if (best_bid and best_ask) else 0.0,
-                            funding_rate=prev.funding_rate if prev else None,
-                            next_funding_time_ms=prev.next_funding_time_ms if prev else None,
-                        )
-                    except Exception as e:
-                        log.warning("CoinSwitch WS parse error: %s", e)
-
                 try:
-                    sio.connect(cfg["ws"], namespaces=[cfg["ws_namespace"]],
-                                transports=["websocket"],
-                                socketio_path=cfg["ws_path"], wait_timeout=10)
-                    sio.emit("FETCH_ORDER_BOOK_CS_PRO", {"event": "subscribe", "pair": symbol},
-                             namespace=cfg["ws_namespace"])
-                    sio.wait()
+                    ws = websocket.WebSocketApp(stream_url, on_message=on_message)
+                    ws.run_forever(ping_interval=20)
                 except Exception as e:
-                    log.warning("CoinSwitch WS crashed, reconnecting in 5s: %s", e)
+                    log.warning("Binance WS crashed, reconnecting in 5s: %s", e)
                 if not self._stop.is_set():
                     time.sleep(5)
 
-        t = threading.Thread(target=_run, daemon=True, name="ws-coinswitch")
+        t = threading.Thread(target=_run, daemon=True, name="ws-binance")
         t.start()
         self._threads.append(t)
-        # Funding rate isn't in the order-book stream — keep a slow REST poll
-        # for that field specifically (caller wires this via start_polling too,
-        # same as for Delta above).
 
-    # ---------------- websocket: Shark (Socket.IO) ----------------
+    # ---------------- websocket: Bybit V5 (public linear ticker) ----------------
 
-    def start_shark_ws(self, symbol: str):
+    def start_bybit_ws(self, symbol: str):
+        """Bybit V5 public WebSocket for linear perpetual tickers.
+        Endpoint: wss://stream.bybit.com/v5/public/linear
+        Subscribe to: tickers.<symbol>"""
         try:
-            import socketio
+            import websocket
         except ImportError:
-            log.warning("python-socketio not installed. Falling back to polling for Shark.")
+            log.warning("websocket-client not installed. Falling back to polling for Bybit.")
             return
 
-        cfg = BASE_URLS["shark"]
-        ws_url = cfg.get("ws")
-        if not ws_url:
-            log.warning("Shark WS URL not configured. Falling back to polling.")
-            return
+        ws_url = BASE_URLS["bybit"]["ws"] + "/v5/public/linear"
+
+        def on_message(ws, message):
+            try:
+                msg = json.loads(message)
+                topic = msg.get("topic", "")
+                if f"tickers.{symbol}" not in topic:
+                    return
+                data = msg.get("data", {})
+                if not data:
+                    return
+
+                prev = self.latest.get(self._key("bybit", symbol))
+
+                # Bybit sends snapshot (full) and delta (partial) updates
+                mark_price = float(data.get("markPrice", 0)) if data.get("markPrice") else (prev.mark_price if prev else 0)
+                funding_rate = float(data.get("fundingRate", 0)) if data.get("fundingRate") else (prev.funding_rate if prev else None)
+                next_funding_ms = int(data.get("nextFundingTime", 0)) if data.get("nextFundingTime") else (prev.next_funding_time_ms if prev else None)
+                best_bid = float(data.get("bid1Price", 0)) if data.get("bid1Price") else (prev.best_bid if prev else mark_price)
+                best_ask = float(data.get("ask1Price", 0)) if data.get("ask1Price") else (prev.best_ask if prev else mark_price)
+
+                self.latest[self._key("bybit", symbol)] = Ticker(
+                    symbol=symbol,
+                    best_bid=best_bid,
+                    best_ask=best_ask,
+                    mark_price=mark_price,
+                    funding_rate=funding_rate,
+                    next_funding_time_ms=next_funding_ms,
+                )
+            except Exception as e:
+                log.warning("Bybit WS parse error: %s", e)
+
+        def on_open(ws):
+            ws.send(json.dumps({
+                "op": "subscribe",
+                "args": [f"tickers.{symbol}"],
+            }))
 
         def _run():
             while not self._stop.is_set():
-                sio = socketio.Client(reconnection=True)
-
-                @sio.on("depthUpdate")
-                def on_depth_update(data):
-                    try:
-                        # Format is typical {'b': [['price', 'size']], 'a': [['price', 'size']]}
-                        bids = data.get("b", [])
-                        asks = data.get("a", [])
-                        best_bid = float(bids[0][0]) if bids and len(bids) > 0 else 0.0
-                        best_ask = float(asks[0][0]) if asks and len(asks) > 0 else 0.0
-                        
-                        prev = self.latest.get(self._key("shark", symbol))
-                        mark_price = prev.mark_price if prev else ((best_bid + best_ask) / 2 if (best_bid and best_ask) else 0.0)
-                        
-                        self.latest[self._key("shark", symbol)] = Ticker(
-                            symbol=symbol, best_bid=best_bid, best_ask=best_ask,
-                            mark_price=mark_price,
-                            funding_rate=prev.funding_rate if prev else None,
-                            next_funding_time_ms=prev.next_funding_time_ms if prev else None,
-                        )
-                    except Exception as e:
-                        log.warning("Shark WS depthUpdate parse error: %s", e)
-
-                @sio.on("markPriceUpdate")
-                def on_mark_price_update(data):
-                    try:
-                        # Format has mark price usually in 'p' or 'm' or 'markPrice'
-                        # Just in case, try a few fields
-                        mp = data.get("markPrice") or data.get("m") or data.get("p")
-                        if mp:
-                            mp = float(mp)
-                            prev = self.latest.get(self._key("shark", symbol))
-                            best_bid = prev.best_bid if prev else 0.0
-                            best_ask = prev.best_ask if prev else 0.0
-                            
-                            self.latest[self._key("shark", symbol)] = Ticker(
-                                symbol=symbol, best_bid=best_bid, best_ask=best_ask,
-                                mark_price=mp,
-                                funding_rate=prev.funding_rate if prev else None,
-                                next_funding_time_ms=prev.next_funding_time_ms if prev else None,
-                            )
-                    except Exception as e:
-                        log.warning("Shark WS markPriceUpdate parse error: %s", e)
-
                 try:
-                    sio.connect(ws_url, transports=["websocket"], wait_timeout=10)
-                    
-                    # Construct topic strings e.g., btcinr@depth_0.1, btcinr@markPrice
-                    sym_lower = symbol.lower()
-                    topics = [f"{sym_lower}@depth_0.1", f"{sym_lower}@markPrice"]
-                    sio.emit("subscribe", {"params": topics})
-                    
-                    sio.wait()
+                    ws = websocket.WebSocketApp(ws_url, on_message=on_message, on_open=on_open)
+                    ws.run_forever(ping_interval=20)
                 except Exception as e:
-                    log.warning("Shark WS crashed, reconnecting in 5s: %s", e)
+                    log.warning("Bybit WS crashed, reconnecting in 5s: %s", e)
                 if not self._stop.is_set():
                     time.sleep(5)
 
-        t = threading.Thread(target=_run, daemon=True, name="ws-shark")
+        t = threading.Thread(target=_run, daemon=True, name="ws-bybit")
         t.start()
         self._threads.append(t)

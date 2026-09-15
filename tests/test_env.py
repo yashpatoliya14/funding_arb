@@ -28,9 +28,9 @@ def test_imports():
         "core.spread_calc",
         "core.telegram_notify",
         "exchanges.base",
-        "exchanges.coinswitch_client",
+        "exchanges.binance_client",
+        "exchanges.bybit_client",
         "exchanges.delta_client",
-        "exchanges.shark_client",
         "engine",
     ]
     for module_name in modules_to_test:

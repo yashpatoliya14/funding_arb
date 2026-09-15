@@ -16,23 +16,14 @@ class TestExecution:
             symbol="BTC", best_bid=100.0, best_ask=101.0, mark_price=100.5,
             funding_rate=0.0, next_funding_time_ms=0
         )
-        self.mock_b.get_ticker.return_value = Ticker(
-            symbol="BTC", best_bid=100.0, best_ask=101.0, mark_price=100.5,
-            funding_rate=0.0, next_funding_time_ms=0
-        )
         self.mock_a.place_limit_order.return_value = OrderResult(
             exchange="a", order_id="1", symbol="BTC", side="buy", price=100.0,
-            quantity=1.0, status="open"
-        )
-        self.mock_b.place_limit_order.return_value = OrderResult(
-            exchange="b", order_id="2", symbol="BTC", side="sell", price=101.0,
             quantity=1.0, status="open"
         )
         
         state = self.manager.open_hedge("BTC", "buy", "BTC", "sell", 1.0, 1.0)
         assert state.order_a.order_id == "1"
-        assert state.order_b.order_id == "2"
-        assert state.entry_basis_pct is not None
+        assert state.order_b is None  # Maker-taker: Leg B is not placed yet
         
     def test_reprice_max_reprices(self, monkeypatch):
         # 29.11 Order Reprice Tests
@@ -42,7 +33,7 @@ class TestExecution:
         state = DualLegState(
             symbol_a="BTC", symbol_b="BTC",
             order_a=OrderResult("a", "1", "BTC", "buy", 100.0, 1.0, "open"),
-            order_b=OrderResult("b", "2", "BTC", "sell", 101.0, 1.0, "open"),
+            order_b=None,
         )
         
         # Simulate price moving
@@ -50,23 +41,20 @@ class TestExecution:
             return Ticker("BTC", best_bid=102.0, best_ask=103.0, mark_price=102.5, funding_rate=0, next_funding_time_ms=0)
         
         self.mock_a.get_ticker.side_effect = mock_get_ticker
-        self.mock_b.get_ticker.side_effect = mock_get_ticker
-        
         self.mock_a.get_order_status.return_value = state.order_a
-        self.mock_b.get_order_status.return_value = state.order_b
         
         def mock_reprice(sym, oid, new_price):
             return OrderResult("x", oid, sym, "buy", new_price, 1.0, "open")
             
         self.mock_a.reprice_order.side_effect = mock_reprice
-        self.mock_b.reprice_order.side_effect = mock_reprice
         
-        res_state = self.manager.monitor_until_filled(state, "buy", "sell", timeout_sec=5)
+        res_state = self.manager.monitor_until_filled(state, "buy", "sell", 1.0, timeout_sec=5)
         
         assert res_state.aborted is True
-        assert res_state.abort_reason == "max_reprices_or_timeout"
+        assert res_state.abort_reason == "maker_unfilled_timeout_or_reprices"
         assert self.mock_a.reprice_order.call_count == 3
-        assert self.mock_b.reprice_order.call_count == 3
+        # Ensure it cancelled the Maker leg
+        self.mock_a.cancel_order.assert_called_with("BTC", "1")
 
 class TestPartialFill:
     def setup_method(self):
@@ -77,49 +65,40 @@ class TestPartialFill:
         self.mock_b.name = "B"
         self.manager = DualLegOrderManager(self.mock_a, self.mock_b, self.mock_notifier)
         
-    def test_one_leg_failure(self):
-        # 29.10 Partial-Fill / One-Leg Failure Tests
-        # Leg A = 100% filled, Leg B = 0% filled
+    def test_taker_hedge_execution(self):
+        # Leg A fills, Leg B should fire instantly
         state = DualLegState(
             symbol_a="BTC", symbol_b="BTC",
-            order_a=OrderResult("A", "1", "BTC", "buy", 100.0, 1.0, "open"),
-            order_b=OrderResult("B", "2", "BTC", "sell", 101.0, 1.0, "open"),
+            order_a=OrderResult("A", "1", "BTC", "buy", 100.0, 1.0, "filled", filled_quantity=1.0),
+            order_b=None,
         )
         
-        # Status A is filled, B is open
-        self.mock_a.get_order_status.return_value = OrderResult("A", "1", "BTC", "buy", 100.0, 1.0, "filled", filled_quantity=1.0)
+        self.mock_b.get_ticker.return_value = Ticker("BTC", best_bid=100.0, best_ask=101.0, mark_price=100.5, funding_rate=0, next_funding_time_ms=0)
+        self.mock_b.place_limit_order.return_value = OrderResult("B", "2", "BTC", "sell", 101.0, 1.0, "open")
+        self.mock_b.get_order_status.return_value = OrderResult("B", "2", "BTC", "sell", 101.0, 1.0, "filled", filled_quantity=1.0)
+        
+        self.manager.execute_taker_hedge(state, "sell", 1.0)
+        
+        assert state.both_filled is True
+        assert state.entry_basis_pct is not None
+        assert self.mock_b.place_limit_order.called
+
+    def test_taker_leg_failure(self):
+        # Leg A fills, but Leg B fails to fill
+        state = DualLegState(
+            symbol_a="BTC", symbol_b="BTC",
+            order_a=OrderResult("A", "1", "BTC", "buy", 100.0, 1.0, "filled", filled_quantity=1.0),
+            order_b=None,
+        )
+        
+        self.mock_b.get_ticker.return_value = Ticker("BTC", best_bid=100.0, best_ask=101.0, mark_price=100.5, funding_rate=0, next_funding_time_ms=0)
+        self.mock_b.place_limit_order.return_value = OrderResult("B", "2", "BTC", "sell", 101.0, 1.0, "open")
         self.mock_b.get_order_status.return_value = OrderResult("B", "2", "BTC", "sell", 101.0, 1.0, "open", filled_quantity=0.0)
         
-        # Manually set a_filled_time to be outside grace period
-        state.a_filled_time = time.time() - 20.0
+        self.manager.execute_taker_hedge(state, "sell", 1.0)
         
-        aborted = self.manager.check_leg_risk(state)
-        
-        assert aborted is True
+        # Should abort and market close A
         assert state.aborted is True
-        assert state.abort_reason == "leg_risk_a_only"
-        
-        # Assert hedge is flattened: cancel B, market close A
+        assert state.abort_reason == "taker_hedge_failed"
+        self.mock_a.close_position_market.assert_called_with("BTC")
         self.mock_b.cancel_order.assert_called_with("BTC", "2")
-        self.mock_a.close_position_market.assert_called_with("BTC")
-        self.mock_notifier.leg_risk.assert_called()
-        
-    def test_partial_fill_risk(self):
-        # Leg A = 40% filled, Leg B = 0%
-        state = DualLegState(
-            symbol_a="BTC", symbol_b="BTC",
-            order_a=OrderResult("A", "1", "BTC", "buy", 100.0, 1.0, "open"),
-            order_b=OrderResult("B", "2", "BTC", "sell", 101.0, 1.0, "open"),
-        )
-        
-        self.mock_a.get_order_status.return_value = OrderResult("A", "1", "BTC", "buy", 100.0, 1.0, "partially_filled", filled_quantity=0.4)
-        self.mock_b.get_order_status.return_value = OrderResult("B", "2", "BTC", "sell", 101.0, 1.0, "open", filled_quantity=0.0)
-        
-        # Manually set a_filled_time to be outside grace period
-        state.a_filled_time = time.time() - 20.0
-        
-        aborted = self.manager.check_leg_risk(state)
-        
-        assert aborted is True
-        assert state.aborted is True
-        self.mock_a.close_position_market.assert_called_with("BTC")

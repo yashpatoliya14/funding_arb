@@ -4,9 +4,9 @@ funding window passes.
 
 Delta's funding snapshot happens at FIXED clock times (05:30, 13:30, 21:30
 IST) as of the Sep-2025 schedule change — see constants.py. We use these as
-the default schedule for all three exchanges; if CoinSwitch/Shark diverge for
-a given symbol, override via their instrument-info endpoint (TODO markers
-left in each client).
+the default schedule for all three exchanges; if Binance/Bybit diverge for
+a given symbol (some use 4h intervals), override via their fundingInfo /
+instruments-info endpoint.
 """
 
 from datetime import datetime, timedelta, time as dtime

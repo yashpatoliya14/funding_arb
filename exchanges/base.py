@@ -2,7 +2,7 @@
 Common interface every exchange client implements.
 
 The engine only ever talks to this interface — it never imports
-DeltaClient/CoinswitchClient/SharkClient directly. That's what lets the
+DeltaClient/BinanceClient/BybitClient directly. That's what lets the
 same engine code run against real exchanges with zero changes to engine.py.
 """
 
@@ -19,6 +19,7 @@ class Ticker:
     mark_price: float
     funding_rate: Optional[float]        # current period funding rate, as fraction
     next_funding_time_ms: Optional[int]  # epoch ms of next funding snapshot
+    funding_interval_minutes: Optional[int] = None  # funding interval in minutes (e.g. 480 = 8h)
 
 
 @dataclass
@@ -31,6 +32,7 @@ class InstrumentInfo:
     min_quantity: float = 0.0
     tick_size: float = 0.0
     is_active: bool = True
+    funding_interval_minutes: Optional[int] = None  # e.g. 480 = 8h, 240 = 4h
 
 
 @dataclass

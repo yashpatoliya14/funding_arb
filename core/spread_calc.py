@@ -168,10 +168,12 @@ def evaluate_funding_trade_full(
     net_funding_pct = funding_received_pct - funding_paid_pct
 
     # ---- Step 3: Calculate fees (entry + exit, both legs, incl. GST) ----
+    # Maker-Taker execution: Entry is Maker on funding leg, Taker on hedge leg.
+    # Exits are Market (Taker) on both legs.
     entry_fee_funding = _fee_pct_one_side(funding_ex, maker=True) * 100
-    exit_fee_funding = _fee_pct_one_side(funding_ex, maker=True) * 100
-    entry_fee_hedge = _fee_pct_one_side(hedge_ex, maker=True) * 100
-    exit_fee_hedge = _fee_pct_one_side(hedge_ex, maker=True) * 100
+    exit_fee_funding = _fee_pct_one_side(funding_ex, maker=False) * 100
+    entry_fee_hedge = _fee_pct_one_side(hedge_ex, maker=False) * 100
+    exit_fee_hedge = _fee_pct_one_side(hedge_ex, maker=False) * 100
 
     entry_fees_pct = entry_fee_funding + entry_fee_hedge
     exit_fees_pct = exit_fee_funding + exit_fee_hedge
