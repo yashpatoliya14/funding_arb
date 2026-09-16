@@ -158,6 +158,8 @@ class FundingArbEngine:
                 in_window = is_in_entry_window()
 
                 if in_window and not traded_this_cycle:
+                    # Notify that the entry window has opened and we are scanning
+                    self.notifier.window_open(self.pair_label, next_funding_time().strftime("%I:%M %p IST"))
                     await asyncio.to_thread(self._attempt_entry)
                     traded_this_cycle = True
 

@@ -41,21 +41,30 @@ class TelegramNotifier:
     def startup(self, mode: str, exchange_pairs: list, scan_mode: str,
                 leverage: int, notional_inr: float = 0, quantity: float = 0):
         """Send a clear startup confirmation so the user knows the bot is live."""
-        pairs_str = "\n".join(f"  • {f} ↔ {h}" for f, h in exchange_pairs)
+        pairs_str = "\n".join(f"  🔄 {f} ↔ {h}" for f, h in exchange_pairs)
         sizing = f"Notional: ₹{notional_inr:,.0f}" if notional_inr > 0 else f"Qty: {quantity}"
         self.send(
-            f"✅ <b>BOT {mode.upper()} — STARTED</b>\n"
-            f"━━━━━━━━━━━━━━━━\n"
+            f"🚀 <b>FUNDING ARB BOT — ONLINE</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎯 <b>Mode:</b> <code>{mode}</code>\n"
+            f"⚙️ <b>Scan Mode:</b> <code>{scan_mode}</code>\n"
+            f"⚖️ <b>Leverage:</b> <code>{leverage}x</code>\n"
+            f"💰 <b>Sizing:</b> <code>{sizing}</code>\n"
+            f"⏱️ <b>Next Funding:</b> <code>{next_funding_time()}</code>\n"
             f"\n"
-            f"<b>Mode:</b> {mode}\n"
-            f"<b>Exchange Pairs:</b>\n{pairs_str}\n"
-            f"\n"
-            f"<b>Scan Mode:</b> {scan_mode}\n"
-            f"<b>Leverage:</b> {leverage}x\n"
-            f"<b>Position Sizing:</b> {sizing}\n"
-            f"<b>Next Funding:</b> {next_funding_time()}\n"
-            f"\n"
-            f"Bot is running. Watching for opportunities 🔍"
+            f"<b>Active Pairs:</b>\n{pairs_str}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👀 <i>Monitoring markets for opportunities...</i>"
+        )
+
+    def window_open(self, pair_label: str, funding_time):
+        """Sent right when the entry window opens before scanning."""
+        self.send(
+            f"🔔 <b>ENTRY WINDOW OPEN</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🔄 <b>Pair:</b> {pair_label}\n"
+            f"⏱️ <b>Funding At:</b> {funding_time}\n"
+            f"🔍 <i>Scanning for best coin...</i>"
         )
 
     # ------------------------------------------------------------------
@@ -76,48 +85,38 @@ class TelegramNotifier:
         """Detailed entry notification with full cost breakdown."""
         # Determine readable direction text
         if opp.funding_side == "sell":
-            direction_text = f"SHORT on {funding_ex} / LONG on {hedge_ex}"
+            direction_text = f"🟥 SHORT on {funding_ex} / 🟩 LONG on {hedge_ex}"
             collect_ex = funding_ex
             pay_ex = hedge_ex
         else:
-            direction_text = f"LONG on {funding_ex} / SHORT on {hedge_ex}"
+            direction_text = f"🟩 LONG on {funding_ex} / 🟥 SHORT on {hedge_ex}"
             collect_ex = hedge_ex
             pay_ex = funding_ex
 
         self.send(
-            f"🟢 <b>ENTRY — {base_asset}</b>\n"
-            f"━━━━━━━━━━━━━━━━\n"
+            f"⚡ <b>EXECUTING TRADE — {base_asset}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🧭 <b>Direction:</b> {direction_text}\n"
             f"\n"
-            f"<b>Exchanges:</b>\n"
-            f"  {funding_ex}: {opp.funding_symbol} ({opp.funding_side.upper()} @ ₹{opp.funding_mark:,.2f})\n"
-            f"  {hedge_ex}: {opp.hedge_symbol} ({opp.hedge_side.upper()} @ ₹{opp.hedge_mark:,.2f})\n"
+            f"🏦 <b>Exchanges:</b>\n"
+            f"  • {funding_ex}: {opp.funding_symbol} @ ₹{opp.funding_mark:,.2f}\n"
+            f"  • {hedge_ex}: {opp.hedge_symbol} @ ₹{opp.hedge_mark:,.2f}\n"
             f"\n"
-            f"<b>Direction:</b> {direction_text}\n"
+            f"💸 <b>Funding Edge:</b>\n"
+            f"  🟢 Collect ({collect_ex}): {opp.funding_rate*100:+.4f}%\n"
+            f"  🔴 Pay ({pay_ex}):     {opp.hedge_rate*100:+.4f}%\n"
+            f"  ✨ Net funding:     {opp.net_funding_pct:+.4f}%\n"
             f"\n"
-            f"<b>Funding Rates:</b>\n"
-            f"  {collect_ex} (collect): {opp.funding_rate*100:+.4f}%\n"
-            f"  {pay_ex} (pay):     {opp.hedge_rate*100:+.4f}%\n"
-            f"  Net funding:     {opp.net_funding_pct:+.4f}%\n"
-            f"\n"
-            f"<b>Cost Breakdown:</b>\n"
-            f"  Funding recv:    +{opp.funding_received_pct:.4f}%\n"
-            f"  Funding paid:    -{opp.funding_paid_pct:.4f}%\n"
+            f"📉 <b>Cost Breakdown:</b>\n"
             f"  Fees (entry+exit): -{opp.entry_fees_pct + opp.exit_fees_pct:.4f}%\n"
             f"  Spread cost:     -{opp.spread_cost_pct:.4f}%\n"
             f"  Slippage buffer: -{opp.slippage_cost_pct:.4f}%\n"
-            f"  Total costs:     -{opp.total_cost_pct:.4f}%\n"
+            f"  <b>Total costs:     -{opp.total_cost_pct:.4f}%</b>\n"
             f"\n"
-            f"<b>━━━━━━━━━━━━━━━━</b>\n"
-            f"<b>Net P&L: {opp.net_pnl_pct:+.4f}%</b>\n"
-            f"<b>━━━━━━━━━━━━━━━━</b>\n"
-            f"\n"
-            f"<b>Position:</b>\n"
-            f"  Qty: {opp.quantity:.6f} {base_asset}\n"
-            f"  Notional: ₹{opp.notional_inr:,.0f}\n"
-            f"\n"
-            f"<b>Prices:</b>\n"
-            f"  {funding_ex}: bid=₹{opp.funding_bid:,.2f} ask=₹{opp.funding_ask:,.2f}\n"
-            f"  {hedge_ex}: bid=₹{opp.hedge_bid:,.2f} ask=₹{opp.hedge_ask:,.2f}"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"💎 <b>NET P&L ESTIMATE: {opp.net_pnl_pct:+.4f}%</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📦 <b>Position:</b> {opp.quantity:.6f} {base_asset} (₹{opp.notional_inr:,.0f})"
         )
 
     def exit(self, symbol_a, symbol_b=None, exchange_a=None, exchange_b=None,
