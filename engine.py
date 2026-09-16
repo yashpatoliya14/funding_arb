@@ -134,7 +134,7 @@ class FundingArbEngine:
                   self.pair_label, self.dry_run_label)
         self.notifier.heartbeat(
             f"Engine started [{self.dry_run_label}] - {self.pair_label}. "
-            f"Next funding at {next_funding_time()}"
+            f"Next funding at {next_funding_time().strftime('%I:%M %p IST')}"
         )
 
         # Initial instrument scan

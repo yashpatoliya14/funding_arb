@@ -50,7 +50,7 @@ class TelegramNotifier:
             f"⚙️ <b>Scan Mode:</b> <code>{scan_mode}</code>\n"
             f"⚖️ <b>Leverage:</b> <code>{leverage}x</code>\n"
             f"💰 <b>Sizing:</b> <code>{sizing}</code>\n"
-            f"⏱️ <b>Next Funding:</b> <code>{next_funding_time()}</code>\n"
+            f"⏱️ <b>Next Funding:</b> <code>{next_funding_time().strftime('%I:%M %p IST')}</code>\n"
             f"\n"
             f"<b>Active Pairs:</b>\n{pairs_str}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -146,7 +146,7 @@ class TelegramNotifier:
             lines.append(f"  Basis at exit:  {current_basis_pct:.4f}%")
             drift = current_basis_pct - entry_basis_pct
             lines.append(f"  Drift: {drift:+.4f}%")
-        lines.append(f"  ⏱ {next_funding_time()}")
+        lines.append(f"  ⏱ {next_funding_time().strftime('%I:%M %p IST')}")
         if pnl_estimate is not None:
             lines.extend([
                 f"",
