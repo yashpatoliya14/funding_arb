@@ -67,7 +67,7 @@ class PaperTelegramNotifier(TelegramNotifier):
 
 PAPER_INITIAL_BALANCE = float(os.getenv("PAPER_INITIAL_BALANCE", "100000"))
 PAPER_SLIPPAGE_PCT = float(os.getenv("PAPER_SLIPPAGE_PCT", "0.01"))
-PAPER_SUMMARY_INTERVAL_SEC = int(os.getenv("PAPER_SUMMARY_INTERVAL_SEC", "1800"))
+PAPER_SUMMARY_INTERVAL_SEC = int(os.getenv("PAPER_SUMMARY_INTERVAL_SEC", "14400"))
 
 
 # ---------------------------------------------------------------------------
