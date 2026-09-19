@@ -87,7 +87,7 @@ class FundingArbEngine:
         self._current_opp: Optional[ArbOpportunity] = None
         self._window_notified = False
         # Legacy fixed-symbol mode
-        self._fixed_symbol_a = fixed_symbol_a
+        self._fixed_symbol_a = fixed_symbol_a 
         self._fixed_symbol_b = fixed_symbol_b
 
     def sanity_check(self) -> bool:
