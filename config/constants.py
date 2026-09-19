@@ -101,7 +101,7 @@ DEFAULT_FUNDING_TIMES_IST = ["05:30", "13:30", "21:30"]
 # ---------------------------------------------------------------------------
 # Strategy thresholds (tune these — they are starting points, not gospel)
 # ---------------------------------------------------------------------------
-ENTRY_LEAD_MINUTES = 5           # enter this many minutes before funding snapshot
+ENTRY_LEAD_MINUTES = 20           # enter this many minutes before funding snapshot
 POST_SNAPSHOT_CLOSE_DELAY_SEC = 60   # wait this long after snapshot, then close both legs
 PRICE_POLL_INTERVAL_SEC = 10     # requirement #1
 ORDER_REPRICE_INTERVAL_SEC = 10  # requirement #7/#8

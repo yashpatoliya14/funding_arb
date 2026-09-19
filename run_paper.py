@@ -143,7 +143,18 @@ class PaperMultiPairRunner(MultiPairRunner):
                 print(f"[paper summary error] {e}")
 
     def _send_combined_summary(self):
-        """Aggregate P&L across all paper clients and send to Telegram."""
+        """Aggregate P&L across all paper clients and send to Telegram.
+        Skips sending if no trades have been placed and no positions are open."""
+        # Check if there's any activity worth reporting
+        has_activity = False
+        for ex_name, client in self._paper_clients.items():
+            stats = client.get_db_stats()
+            if stats.get("total_trades", 0) > 0 or client.open_positions:
+                has_activity = True
+                break
+        if not has_activity:
+            return
+
         total_pnl = 0.0
         total_trades = 0
         total_fees = 0.0

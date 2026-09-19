@@ -85,6 +85,7 @@ class FundingArbEngine:
         self.order_manager = DualLegOrderManager(client_a, client_b, notifier)
         self._current_state = None
         self._current_opp: Optional[ArbOpportunity] = None
+        self._window_notified = False
         # Legacy fixed-symbol mode
         self._fixed_symbol_a = fixed_symbol_a
         self._fixed_symbol_b = fixed_symbol_b
@@ -158,10 +159,14 @@ class FundingArbEngine:
                 in_window = is_in_entry_window()
 
                 if in_window and not traded_this_cycle:
-                    # Notify that the entry window has opened and we are scanning
-                    self.notifier.window_open(self.pair_label, next_funding_time().strftime("%I:%M %p IST"))
-                    await asyncio.to_thread(self._attempt_entry)
-                    traded_this_cycle = True
+                    # Notify once when the entry window opens
+                    if not self._window_notified:
+                        self.notifier.window_open(self.pair_label, next_funding_time().strftime("%I:%M %p IST"))
+                        self._window_notified = True
+                    # Retry scanning every loop tick until a trade is placed or the window closes
+                    trade_placed = await asyncio.to_thread(self._attempt_entry)
+                    if trade_placed:
+                        traded_this_cycle = True
 
                 if self._current_state and self._current_state.both_filled:
                     aborted = await asyncio.to_thread(
@@ -179,6 +184,7 @@ class FundingArbEngine:
 
                 if not is_in_entry_window() and should_close_now() is False and self._current_state is None:
                     traded_this_cycle = False  # reset once we're clear of the previous window
+                    self._window_notified = False  # reset window notification for next cycle
 
             except Exception as e:
                 log.exception("[%s] Engine loop error: %s", self.pair_label, e)
@@ -186,8 +192,11 @@ class FundingArbEngine:
 
             await asyncio.sleep(settings.MAIN_LOOP_INTERVAL_SEC)
 
-    def _attempt_entry(self):
-        """Scan all coins, find the best opportunity, verify costs, and execute."""
+    def _attempt_entry(self) -> bool:
+        """Scan all coins, find the best opportunity, verify costs, and execute.
+
+        Returns True if a trade was actually placed, False otherwise.
+        """
         # ---- Step 1: Find the best opportunity ----
         opp = self.scanner.find_best_opportunity(
             self._all_clients, self.exchange_name_a, self.exchange_name_b
@@ -197,16 +206,16 @@ class FundingArbEngine:
             common_count = len(self.scanner.symbol_map.common_coins(
                 self.exchange_name_a, self.exchange_name_b
             ))
-            log.info("[%s] No tradeable opportunity across %d coins — skipping.",
+            log.info("[%s] No tradeable opportunity across %d coins — will retry.",
                      self.pair_label, common_count)
-            return
+            return False
 
         log.info("[%s] Selected opportunity: %s", self.pair_label, opp.reason)
 
         if not opp.tradeable:
-            log.info("[%s] Best opportunity does not clear cost threshold — skipping.",
+            log.info("[%s] Best opportunity does not clear cost threshold — will retry.",
                      self.pair_label)
-            return
+            return False
 
         # ---- Step 2: Fresh price verification ----
         # Re-fetch tickers to ensure the opportunity is still valid right now
@@ -215,7 +224,7 @@ class FundingArbEngine:
             hedge_ticker = self._all_clients[opp.hedge_exchange].get_ticker(opp.hedge_symbol)
         except Exception as e:
             log.warning("[%s] Failed to re-fetch tickers for verification: %s", self.pair_label, e)
-            return
+            return False
 
         # Re-evaluate with fresh prices
         from core.spread_calc import evaluate_funding_trade_full
@@ -238,9 +247,9 @@ class FundingArbEngine:
         log.info("[%s] Fresh verification: %s", self.pair_label, fresh_opp.reason)
 
         if not fresh_opp.tradeable:
-            log.info("[%s] Opportunity no longer profitable after fresh price check — skipping.",
+            log.info("[%s] Opportunity no longer profitable after fresh price check — will retry.",
                      self.pair_label)
-            return
+            return False
 
         # ---- Step 3: Notify and prepare ----
         self.notifier.entry_full(
@@ -286,9 +295,11 @@ class FundingArbEngine:
 
         if state.aborted:
             log.warning("[%s] Entry aborted: %s", self.pair_label, state.abort_reason)
+            return False
         else:
             log.info("[%s] Both legs filled for %s — holding through funding snapshot.",
                      self.pair_label, fresh_opp.base_asset)
+            return True
 
 
 class MultiPairRunner:
