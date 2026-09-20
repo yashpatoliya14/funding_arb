@@ -41,6 +41,21 @@ SCAN_ALL_COINS = os.getenv("SCAN_ALL_COINS", "false").lower() == "true"
 # --- Loop pacing ---
 MAIN_LOOP_INTERVAL_SEC = int(os.getenv("MAIN_LOOP_INTERVAL_SEC", "10"))
 
+# --- Strategy economics (overridable per environment) ---
+# Minimum net edge (%) after amortized costs required to enter a trade.
+# Lower this (even negative) in paper mode to exercise the execution pipeline.
+MIN_NET_EDGE_PCT = float(os.getenv("MIN_NET_EDGE_PCT", "0.05"))
+
+# A single funding snapshot rarely beats a full round-trip fee. Funding arb is
+# only profitable if the delta-neutral position is HELD across several snapshots
+# so entry/exit costs amortize. This is the number of snapshots we expect to
+# hold, used both to amortize costs in the entry decision AND to bound the hold.
+EXPECTED_HOLD_SNAPSHOTS = int(os.getenv("EXPECTED_HOLD_SNAPSHOTS", "8"))
+
+# While holding, exit early if the net funding edge (%) for the held coin drops
+# below this. 0.0 = exit as soon as funding stops being in our favour.
+FUNDING_EXIT_THRESHOLD_PCT = float(os.getenv("FUNDING_EXIT_THRESHOLD_PCT", "0.0"))
+
 # --- API credentials ---
 DELTA_API_KEY = os.getenv("DELTA_API_KEY", "")
 DELTA_API_SECRET = os.getenv("DELTA_API_SECRET", "")

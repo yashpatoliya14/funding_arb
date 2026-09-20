@@ -56,19 +56,25 @@ def is_in_entry_window(now: datetime = None, times_str: list[str] = None) -> boo
     return entry_time <= now_ist < nft
 
 
-def seconds_since_snapshot(now: datetime = None, times_str: list[str] = None) -> float:
-    """Returns seconds elapsed since the MOST RECENT funding snapshot (negative
-    if the next one hasn't happened yet). Used to trigger the close-immediately
-    rule once POST_SNAPSHOT_CLOSE_DELAY_SEC has elapsed."""
+def most_recent_funding_time(now: datetime = None, times_str: list[str] = None) -> datetime:
+    """The datetime of the MOST RECENT funding snapshot at or before `now`.
+    Used to count distinct snapshots collected while holding a position."""
     times_str = times_str or DELTA_FUNDING_TIMES_IST
     now_ist = (now or datetime.now(IST)).astimezone(IST)
     todays = _today_candidates(now_ist, times_str)
     past = [t for t in todays if t <= now_ist]
     if past:
-        last = max(past)
-    else:
-        yesterday = now_ist - timedelta(days=1)
-        last = max(_today_candidates(yesterday, times_str))
+        return max(past)
+    yesterday = now_ist - timedelta(days=1)
+    return max(_today_candidates(yesterday, times_str))
+
+
+def seconds_since_snapshot(now: datetime = None, times_str: list[str] = None) -> float:
+    """Returns seconds elapsed since the MOST RECENT funding snapshot (negative
+    if the next one hasn't happened yet). Used to trigger the close-immediately
+    rule once POST_SNAPSHOT_CLOSE_DELAY_SEC has elapsed."""
+    now_ist = (now or datetime.now(IST)).astimezone(IST)
+    last = most_recent_funding_time(now_ist, times_str)
     return (now_ist - last).total_seconds()
 
 

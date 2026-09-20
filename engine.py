@@ -31,7 +31,10 @@ from config import settings
 from core.coin_scanner import CoinScanner, ArbOpportunity
 from core.spread_calc import evaluate_funding_trade
 from core.leverage_sync import sync_leverage
-from core.funding_window import is_in_entry_window, should_close_now, next_funding_time
+from core.funding_window import (
+    is_in_entry_window, should_close_now, next_funding_time,
+    most_recent_funding_time, seconds_until_entry_window,
+)
 from core.order_manager import DualLegOrderManager
 from core.telegram_notify import TelegramNotifier
 from exchanges.base import ExchangeClient
@@ -86,8 +89,12 @@ class FundingArbEngine:
         self._current_state = None
         self._current_opp: Optional[ArbOpportunity] = None
         self._window_notified = False
+        # Hold-across-snapshots tracking
+        self._held_snapshots = 0
+        self._last_counted_funding = None   # datetime of the last snapshot we counted
+        self._last_idle_log = 0.0           # throttle for "waiting for window" logs
         # Legacy fixed-symbol mode
-        self._fixed_symbol_a = fixed_symbol_a 
+        self._fixed_symbol_a = fixed_symbol_a
         self._fixed_symbol_b = fixed_symbol_b
 
     def sanity_check(self) -> bool:
@@ -157,8 +164,10 @@ class FundingArbEngine:
                 )
 
                 in_window = is_in_entry_window()
+                have_position = self._current_state is not None
 
-                if in_window and not traded_this_cycle:
+                # ---- Entry: only in-window, once per cycle, and only if flat ----
+                if in_window and not traded_this_cycle and not have_position:
                     # Notify once when the entry window opens
                     if not self._window_notified:
                         self.notifier.window_open(self.pair_label, next_funding_time().strftime("%I:%M %p IST"))
@@ -167,21 +176,38 @@ class FundingArbEngine:
                     trade_placed = await asyncio.to_thread(self._attempt_entry)
                     if trade_placed:
                         traded_this_cycle = True
+                        self._held_snapshots = 0
+                        # Don't count the snapshot we entered just before as "held".
+                        self._last_counted_funding = next_funding_time()
+                elif not have_position:
+                    # Idle: make it obvious the bot is alive and waiting, not stuck.
+                    self._log_idle_wait()
 
+                # ---- Hold across snapshots / exit ----
                 if self._current_state and self._current_state.both_filled:
                     aborted = await asyncio.to_thread(
                         self.order_manager.check_basis_drift, self._current_state
                     )
-                    if aborted or should_close_now():
-                        log.info("[%s] Closing hedge (basis-drift-abort=%s, snapshot-window=%s)",
-                                 self.pair_label, aborted, should_close_now())
-                        if not aborted:
-                            await asyncio.to_thread(
-                                self.order_manager.close_both, self._current_state
-                            )
-                        self._current_state = None
-                        self._current_opp = None
+                    if aborted:
+                        log.info("[%s] Position closed by basis-drift kill-switch.", self.pair_label)
+                        self._reset_position()
+                    elif should_close_now():
+                        # A funding snapshot just passed. Count it once, then decide
+                        # whether to keep holding (collect more snapshots) or exit.
+                        snap = most_recent_funding_time()
+                        if snap != self._last_counted_funding:
+                            self._last_counted_funding = snap
+                            self._held_snapshots += 1
+                            should_exit, reason = await asyncio.to_thread(self._should_exit_position)
+                            log.info("[%s] Snapshot #%d collected. %s",
+                                     self.pair_label, self._held_snapshots, reason)
+                            if should_exit:
+                                await asyncio.to_thread(
+                                    self.order_manager.close_both, self._current_state
+                                )
+                                self._reset_position()
 
+                # ---- Reset per-cycle entry gate once clear of the window ----
                 if not is_in_entry_window() and should_close_now() is False and self._current_state is None:
                     traded_this_cycle = False  # reset once we're clear of the previous window
                     self._window_notified = False  # reset window notification for next cycle
@@ -295,11 +321,74 @@ class FundingArbEngine:
 
         if state.aborted:
             log.warning("[%s] Entry aborted: %s", self.pair_label, state.abort_reason)
+            self._current_state = None
+            self._current_opp = None
             return False
         else:
-            log.info("[%s] Both legs filled for %s — holding through funding snapshot.",
-                     self.pair_label, fresh_opp.base_asset)
+            log.info("[%s] Both legs filled for %s — holding across up to %d funding snapshots.",
+                     self.pair_label, fresh_opp.base_asset, settings.EXPECTED_HOLD_SNAPSHOTS)
             return True
+
+    def _reset_position(self):
+        """Clear all position state after a close/abort so the engine can
+        re-enter on the next window."""
+        self._current_state = None
+        self._current_opp = None
+        self._held_snapshots = 0
+
+    def _should_exit_position(self) -> tuple[bool, str]:
+        """Decide whether to close the held delta-neutral position.
+
+        Exit when EITHER:
+          - we've collected the expected number of snapshots (cost amortized), OR
+          - the funding edge for the held coin has decayed below the exit
+            threshold (holding longer would no longer be in our favour).
+        """
+        opp = self._current_opp
+        if opp is None:
+            return True, "no opportunity attached — closing"
+
+        if self._held_snapshots >= settings.EXPECTED_HOLD_SNAPSHOTS:
+            return True, (f"held {self._held_snapshots}/{settings.EXPECTED_HOLD_SNAPSHOTS} "
+                          f"snapshots — target reached, closing")
+
+        # Re-check the live funding edge for the direction we actually hold:
+        # short `funding_symbol` on funding_exchange, long `hedge_symbol` on hedge_exchange.
+        try:
+            f_ticker = self._all_clients[opp.funding_exchange].get_ticker(opp.funding_symbol)
+            h_ticker = self._all_clients[opp.hedge_exchange].get_ticker(opp.hedge_symbol)
+        except Exception as e:
+            # Can't verify — hold rather than churn fees on a transient error.
+            return False, f"funding re-check failed ({e}) — holding"
+
+        f_rate = f_ticker.funding_rate or 0.0
+        h_rate = h_ticker.funding_rate or 0.0
+        # Short collects funding on the funding leg; long pays on the hedge leg.
+        net_funding_pct = (f_rate - h_rate) * 100
+
+        if net_funding_pct < settings.FUNDING_EXIT_THRESHOLD_PCT:
+            return True, (f"net funding edge {net_funding_pct:+.4f}% dropped below "
+                          f"exit threshold {settings.FUNDING_EXIT_THRESHOLD_PCT}% — closing")
+
+        return False, (f"net funding edge {net_funding_pct:+.4f}% still favourable — "
+                       f"holding ({self._held_snapshots}/{settings.EXPECTED_HOLD_SNAPSHOTS})")
+
+    def _log_idle_wait(self):
+        """Throttled heartbeat log so it's clear the bot is alive and simply
+        waiting for the next entry window (trades only fire near funding times)."""
+        now = time.time()
+        if now - self._last_idle_log < 300:  # at most once every 5 min
+            return
+        self._last_idle_log = now
+        wait_sec = seconds_until_entry_window()
+        nft = next_funding_time().strftime("%I:%M %p IST")
+        if wait_sec > 0:
+            mins = int(wait_sec // 60)
+            log.info("[%s] Idle — entry window opens in ~%d min (funding at %s). No scan until then.",
+                     self.pair_label, mins, nft)
+        else:
+            log.info("[%s] In entry window (funding at %s) — scanning for opportunities.",
+                     self.pair_label, nft)
 
 
 class MultiPairRunner:

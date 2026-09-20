@@ -14,10 +14,14 @@ the coin scanner and returns a detailed cost breakdown verdict.
 
 from dataclasses import dataclass
 from config.constants import (
-    FEES, GST_ON_FEES, MIN_NET_EDGE_PCT, SLIPPAGE_BPS_PER_LEG,
+    FEES, GST_ON_FEES, SLIPPAGE_BPS_PER_LEG,
     FIXED_NOTIONAL_INR,
 )
 from config import settings
+# MIN_NET_EDGE_PCT is env-configurable, so source it from settings (which reads
+# .env) rather than the static constant. Kept as a module-level name so tests
+# and paper tuning can monkeypatch it directly.
+from config.settings import MIN_NET_EDGE_PCT, EXPECTED_HOLD_SNAPSHOTS
 
 
 # ---------------------------------------------------------------------------
@@ -202,10 +206,21 @@ def evaluate_funding_trade_full(
     # here covers market impact beyond the quoted top-of-book)
 
     # ---- Step 6: Total cost and net P&L ----
+    # Entry/exit fees, spread-crossing and slippage are ONE-TIME costs paid when
+    # opening and closing the position. Funding, by contrast, is collected at
+    # EVERY snapshot we hold through. A single snapshot almost never beats a full
+    # round-trip fee, so we amortize the one-time cost across the number of
+    # snapshots we expect to hold. The trade is only worth entering if the
+    # per-snapshot funding edge clears the amortized per-snapshot cost.
     total_cost_pct = entry_fees_pct + exit_fees_pct + spread_cost_pct + slippage_cost_pct
-    net_pnl_pct = net_funding_pct - total_cost_pct
 
-    tradeable = net_pnl_pct >= MIN_NET_EDGE_PCT
+    hold_snapshots = max(1, EXPECTED_HOLD_SNAPSHOTS)
+    amortized_cost_pct = total_cost_pct / hold_snapshots
+    # net_pnl_pct is expressed per snapshot (funding is per snapshot).
+    net_pnl_pct = net_funding_pct - amortized_cost_pct
+
+    min_edge = MIN_NET_EDGE_PCT
+    tradeable = net_pnl_pct >= min_edge
 
     # ---- Step 7: Compute quantity from notional ----
     avg_mark = (f_mark + h_mark) / 2 if (f_mark > 0 and h_mark > 0) else max(f_mark, h_mark)
@@ -213,13 +228,12 @@ def evaluate_funding_trade_full(
     quantity = notional / avg_mark if (notional > 0 and avg_mark > 0) else settings.TRADE_QUANTITY
 
     reason = (
-        f"{base_asset}: net_pnl={net_pnl_pct:+.4f}% "
-        f"[funding={net_funding_pct:.4f}% (recv={funding_received_pct:.4f}% pay={funding_paid_pct:.4f}%) "
-        f"- fees={entry_fees_pct + exit_fees_pct:.4f}% "
-        f"- spread={spread_cost_pct:.4f}% "
-        f"- slip={slippage_cost_pct:.4f}% "
-        f"- total={total_cost_pct:.4f}%] "
-        f"{'✓ TRADEABLE' if tradeable else '✗ below threshold'} (min={MIN_NET_EDGE_PCT}%)"
+        f"{base_asset}: net_pnl/snap={net_pnl_pct:+.4f}% "
+        f"[funding/snap={net_funding_pct:.4f}% (recv={funding_received_pct:.4f}% pay={funding_paid_pct:.4f}%) "
+        f"- amortized_cost={amortized_cost_pct:.4f}% "
+        f"(one-time total={total_cost_pct:.4f}% over {hold_snapshots} snaps: "
+        f"fees={entry_fees_pct + exit_fees_pct:.4f}% spread={spread_cost_pct:.4f}% slip={slippage_cost_pct:.4f}%)] "
+        f"{'✓ TRADEABLE' if tradeable else '✗ below threshold'} (min={min_edge}%)"
     )
 
     return ArbOpportunity(
