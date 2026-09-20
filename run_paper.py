@@ -20,8 +20,18 @@ Usage:
 import asyncio
 import sys
 import os
-import time
 from dotenv import load_dotenv
+
+# On Windows the default console encoding (cp1252) can't encode the emoji
+# used in status/print lines, which crashes the process on the first print.
+# Force UTF-8 on stdout/stderr so paper trading starts on any platform.
+for _stream in (sys.stdout, sys.stderr):
+    reconfigure = getattr(_stream, "reconfigure", None)
+    if reconfigure is not None:
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 load_dotenv()
 
